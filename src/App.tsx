@@ -7,6 +7,7 @@ import { formatCountdown, todayIso } from './lib/storage'
 import { PanicModal } from './components/PanicModal'
 import DashboardPage from './pages/DashboardPage'
 import AuthPage from './pages/AuthPage'
+import MyThesisPage from './pages/MyThesisPage'
 import SchoolPage from './pages/SchoolPage'
 import CoachingPage from './pages/CoachingPage'
 import CommunityPage from './pages/CommunityPage'
@@ -21,6 +22,7 @@ export const App = () => {
         <Route path="/auth" element={<AuthPage />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/my-thesis" element={<MyThesisPage />} />
           <Route path="/school" element={<SchoolPage />} />
           <Route path="/coaching" element={<CoachingPage />} />
           <Route path="/community" element={<CommunityPage />} />
@@ -54,6 +56,9 @@ const AppLayout = () => {
         <nav className="nav">
           <NavLink className={({ isActive }) => `nav-pill ${isActive ? 'active' : ''}`} to="/dashboard">
             Dashboard
+          </NavLink>
+          <NavLink className={({ isActive }) => `nav-pill ${isActive ? 'active' : ''}`} to="/my-thesis">
+            My Thesis
           </NavLink>
           <NavLink className={({ isActive }) => `nav-pill ${isActive ? 'active' : ''}`} to="/school">
             School
