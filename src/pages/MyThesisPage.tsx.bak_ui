@@ -1,0 +1,1055 @@
+﻿import {
+  Activity,
+  BarChart3,
+  CalendarDays,
+  CheckCircle2,
+  CircleAlert,
+  FileText,
+  Filter,
+  FolderOpen,
+  LayoutDashboard,
+  ListChecks,
+  Lock,
+  NotepadText,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  ListTodo,
+  TrendingUp,
+  UploadCloud,
+} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { useStoredProfile } from '../hooks/useStoredProfile'
+import { useStress } from '../hooks/useStress'
+import {
+  loadAssessment,
+  loadPlan,
+  loadThesisChecklist,
+  loadThesisDocuments,
+  loadTodos,
+  replaceThesisChecklist,
+  replaceThesisDocuments,
+  replaceTodos,
+} from '../lib/supabaseData'
+import { STORAGE_KEYS, normalizeTodos, parseJson, todayIso } from '../lib/storage'
+import type { AssessmentResult, Plan, ThesisChecklistItem, ThesisDocument, TodoItem } from '../lib/storage'
+
+const formatBytes = (bytes: number) => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  const value = bytes / Math.pow(k, i)
+  const rounded = i === 0 ? value.toFixed(0) : value.toFixed(1)
+  return `${rounded} ${sizes[i]}`
+}
+
+const formatDocDate = (value: string | number) => {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '--'
+  return parsed.toLocaleDateString()
+}
+
+const documentKey = (doc: { name: string; size: number; lastModified: number }) =>
+  `${doc.name}-${doc.size}-${doc.lastModified}`
+
+const documentLabel = (name: string) => {
+  const parts = name.split('.')
+  if (parts.length < 2) return 'FILE'
+  return parts[parts.length - 1].toUpperCase().slice(0, 4)
+}
+
+const checklistBase: ThesisChecklistItem[] = [
+  { id: 'title-page', title: 'Titelblatt', detail: 'Cover, Author, Studiengang', done: false },
+  { id: 'abstract', title: 'Abstract', detail: 'Kurzfassung mit Ziel, Methode, Ergebnis', done: false },
+  { id: 'introduction', title: 'Einleitung', detail: 'Problemstellung und Forschungsfrage', done: false },
+  { id: 'method', title: 'Methodik', detail: 'Design, Stichprobe, Instrumente', done: false },
+  { id: 'results', title: 'Ergebnisse', detail: 'Auswertung, Tabellen, Visuals', done: false },
+  { id: 'discussion', title: 'Diskussion', detail: 'Interpretation, Limitationen, Ausblick', done: false },
+  { id: 'references', title: 'Zitationen', detail: 'Saubere und einheitliche Quellen', done: false },
+  { id: 'appendix', title: 'Anhang', detail: 'Zusatzmaterial und Datensets', done: false },
+]
+
+const createChecklist = () => checklistBase.map((item) => ({ ...item }))
+
+const mergeChecklist = (stored: ThesisChecklistItem[] | null) => {
+  const base = createChecklist()
+  if (!stored || stored.length === 0) return base
+  const map = new Map(stored.map((item) => [item.id, item.done]))
+  return base.map((item) => ({ ...item, done: map.get(item.id) ?? item.done }))
+}
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+const defaultNotes = {
+  chapter: '',
+  method: '',
+  writing: '',
+}
+
+type DocFilter = 'all' | 'pdf' | 'doc' | 'docx'
+type TodoView = 'all' | 'today' | 'week' | 'overdue'
+type ThesisView = 'overview' | 'documents' | 'tasks' | 'quality' | 'workbench'
+
+const MyThesisPage = () => {
+  const navigate = useNavigate()
+  const [documents, setDocuments] = useState<ThesisDocument[]>(() =>
+    parseJson(localStorage.getItem(STORAGE_KEYS.thesisDocuments), [])
+  )
+  const [todos, setTodos] = useState<TodoItem[]>(() =>
+    normalizeTodos(parseJson(localStorage.getItem(STORAGE_KEYS.todos), []))
+  )
+  const [checklist, setChecklist] = useState<ThesisChecklistItem[]>(() =>
+    mergeChecklist(parseJson(localStorage.getItem(STORAGE_KEYS.thesisChecklist), null))
+  )
+  const [plan, setPlan] = useState<Plan>(() => parseJson(localStorage.getItem(STORAGE_KEYS.plan), 'free'))
+  const [assessment, setAssessment] = useState<AssessmentResult | null>(() =>
+    parseJson(localStorage.getItem(STORAGE_KEYS.assessment), null)
+  )
+  const [notes, setNotes] = useState(() => parseJson(localStorage.getItem(STORAGE_KEYS.thesisNotes), defaultNotes))
+  const [docQuery, setDocQuery] = useState('')
+  const [docFilter, setDocFilter] = useState<DocFilter>('all')
+  const [todoView, setTodoView] = useState<TodoView>('all')
+  const [activeView, setActiveView] = useState<ThesisView>('overview')
+  const [synced, setSynced] = useState(false)
+
+  const { user } = useAuth()
+  const profile = useStoredProfile()
+  const stress = useStress(user?.id)
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.todos, JSON.stringify(todos))
+    if (!synced || !user) return
+    replaceTodos(user.id, todos).catch((error) => {
+      console.error('Todos speichern fehlgeschlagen', error)
+    })
+  }, [todos, synced, user])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.thesisDocuments, JSON.stringify(documents))
+    if (!synced || !user) return
+    replaceThesisDocuments(user.id, documents).catch((error) => {
+      console.error('Dokumente speichern fehlgeschlagen', error)
+    })
+  }, [documents, synced, user])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.thesisChecklist, JSON.stringify(checklist))
+    if (!synced || !user) return
+    replaceThesisChecklist(user.id, checklist).catch((error) => {
+      console.error('Checklist speichern fehlgeschlagen', error)
+    })
+  }, [checklist, synced, user])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.thesisNotes, JSON.stringify(notes))
+  }, [notes])
+
+  useEffect(() => {
+    let active = true
+    if (!user) {
+      setSynced(true)
+      return () => {}
+    }
+
+    Promise.all([loadTodos(user.id), loadThesisDocuments(user.id), loadThesisChecklist(user.id)]).then(
+      ([remoteTodos, remoteDocs, remoteChecklist]) => {
+        if (!active) return
+        if (remoteTodos.length > 0) {
+          setTodos(normalizeTodos(remoteTodos))
+        }
+        if (remoteDocs.length > 0) {
+          setDocuments(remoteDocs)
+        }
+        if (remoteChecklist && remoteChecklist.length > 0) {
+          setChecklist(mergeChecklist(remoteChecklist))
+        }
+        setSynced(true)
+      }
+    )
+
+    return () => {
+      active = false
+    }
+  }, [user?.id])
+
+  useEffect(() => {
+    let active = true
+    if (!user) return () => {}
+
+    loadPlan(user.id).then((remote) => {
+      if (!active || !remote) return
+      setPlan(remote)
+      localStorage.setItem(STORAGE_KEYS.plan, JSON.stringify(remote))
+    })
+
+    loadAssessment(user.id).then((remote) => {
+      if (!active || !remote) return
+      setAssessment(remote)
+      localStorage.setItem(STORAGE_KEYS.assessment, JSON.stringify(remote))
+    })
+
+    return () => {
+      active = false
+    }
+  }, [user?.id])
+
+  const today = todayIso()
+  const weekEnd = useMemo(() => {
+    const date = new Date(today)
+    date.setDate(date.getDate() + 7)
+    return date.toISOString().slice(0, 10)
+  }, [today])
+
+  const checklistDone = checklist.filter((item) => item.done).length
+  const checklistRate = checklist.length === 0 ? 0 : Math.round((checklistDone / checklist.length) * 100)
+  const overdueTodos = todos.filter((todo) => todo.date && todo.date < today).length
+  const todosToday = todos.filter((todo) => todo.date === today).length
+  const todosWeek = todos.filter((todo) => todo.date >= today && todo.date <= weekEnd).length
+
+  const progressValue = useMemo(() => {
+    const statusValue = Number(profile?.status ?? '0')
+    const uploadsImpact = Math.min(documents.length * 4, 18)
+    const checklistImpact = Math.round(checklistRate * 0.34)
+    const todoImpact = Math.min(todosWeek * 3, 16)
+    const planImpact = plan === 'free' ? 0 : plan === 'basic' ? 8 : 13
+    const stressPenalty = Math.round(Math.max(stress.value - 58, 0) * 0.24)
+
+    return clamp(statusValue + uploadsImpact + checklistImpact + todoImpact + planImpact - stressPenalty, 6, 100)
+  }, [profile?.status, documents.length, checklistRate, todosWeek, plan, stress.value])
+
+  const qualityLocked = plan === 'free'
+
+  const eleaScorePercent = useMemo(() => {
+    const statusValue = Number(profile?.status ?? '0')
+    const base = 42 + statusValue * 0.34 + checklistRate * 0.26 + Math.min(documents.length * 2.6, 15)
+    const stressImpact = Math.max(stress.value - 55, 0) * 0.19
+    const planBoost = plan === 'pro' ? 8 : plan === 'basic' ? 4 : 0
+    return clamp(Math.round(base + planBoost - stressImpact), 18, 97)
+  }, [profile?.status, checklistRate, documents.length, stress.value, plan])
+
+  const eleaScoreValue = (eleaScorePercent / 10).toFixed(1)
+
+  const rubricScores = useMemo(() => {
+    const base = eleaScorePercent / 10
+    return [
+      { label: 'Struktur', value: clamp(Number((base + 0.2).toFixed(1)), 1, 10) },
+      { label: 'Inhalt', value: clamp(Number((base - 0.1).toFixed(1)), 1, 10) },
+      { label: 'Methodik', value: clamp(Number((base - 0.4).toFixed(1)), 1, 10) },
+      { label: 'Zitation', value: clamp(Number((base + 0.1).toFixed(1)), 1, 10) },
+      { label: 'Sprache', value: clamp(Number((base + 0.3).toFixed(1)), 1, 10) },
+      { label: 'Originalitaet', value: clamp(Number((base - 0.2).toFixed(1)), 1, 10) },
+    ]
+  }, [eleaScorePercent])
+
+  const sparklineValues = useMemo(() => {
+    const logValues = stress.log.slice(-8).map((entry) => clamp(100 - entry.value, 10, 95))
+    if (logValues.length >= 5) return logValues
+
+    return [
+      clamp(progressValue - 18, 20, 95),
+      clamp(progressValue - 12, 20, 95),
+      clamp(progressValue - 8, 20, 95),
+      clamp(progressValue - 4, 20, 95),
+      clamp(progressValue - 2, 20, 95),
+      clamp(progressValue, 20, 95),
+      clamp(progressValue + 1, 20, 95),
+      clamp(progressValue + 2, 20, 95),
+    ]
+  }, [stress.log, progressValue])
+
+  const sparklinePath = useMemo(() => {
+    const width = 320
+    const height = 102
+    const padding = 8
+    const values = sparklineValues
+    if (values.length <= 1) return `M ${padding} ${height / 2} L ${width - padding} ${height / 2}`
+
+    const max = Math.max(...values)
+    const min = Math.min(...values)
+    const range = Math.max(max - min, 1)
+
+    return values
+      .map((value, index) => {
+        const x = padding + (index / (values.length - 1)) * (width - padding * 2)
+        const y = height - padding - ((value - min) / range) * (height - padding * 2)
+        return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
+      })
+      .join(' ')
+  }, [sparklineValues])
+
+  const docTypeStats = useMemo(() => {
+    const stats = { pdf: 0, docx: 0, doc: 0, other: 0 }
+
+    documents.forEach((doc) => {
+      const extension = doc.name.split('.').pop()?.toLowerCase() ?? ''
+      if (extension === 'pdf') stats.pdf += 1
+      else if (extension === 'docx') stats.docx += 1
+      else if (extension === 'doc') stats.doc += 1
+      else stats.other += 1
+    })
+
+    const total = Math.max(1, documents.length)
+    return [
+      { label: 'PDF', value: stats.pdf, percent: Math.round((stats.pdf / total) * 100) },
+      { label: 'DOCX', value: stats.docx, percent: Math.round((stats.docx / total) * 100) },
+      { label: 'DOC', value: stats.doc, percent: Math.round((stats.doc / total) * 100) },
+      { label: 'Andere', value: stats.other, percent: Math.round((stats.other / total) * 100) },
+    ]
+  }, [documents])
+
+  const filteredDocuments = useMemo(() => {
+    const query = docQuery.trim().toLowerCase()
+
+    return documents.filter((doc) => {
+      const extension = doc.name.split('.').pop()?.toLowerCase() ?? ''
+      const typePass =
+        docFilter === 'all' ||
+        (docFilter === 'pdf' && extension === 'pdf') ||
+        (docFilter === 'doc' && extension === 'doc') ||
+        (docFilter === 'docx' && extension === 'docx')
+
+      if (!typePass) return false
+      if (!query) return true
+      return doc.name.toLowerCase().includes(query)
+    })
+  }, [documents, docFilter, docQuery])
+
+  const filteredTodos = useMemo(() => {
+    if (todoView === 'all') return todos
+    if (todoView === 'today') return todos.filter((todo) => todo.date === today)
+    if (todoView === 'week') return todos.filter((todo) => todo.date >= today && todo.date <= weekEnd)
+    return todos.filter((todo) => todo.date && todo.date < today)
+  }, [todos, todoView, today, weekEnd])
+
+  const recommendations = useMemo(() => {
+    const items: string[] = []
+
+    if (!profile) {
+      items.push('Profil vollstaendig ausfuellen, damit dein Thesis-Plan korrekt startet.')
+      return items
+    }
+
+    const statusValue = Number(profile.status ?? '0')
+    if (statusValue < 50) items.push('Expose + Methodikteil als naechsten Sprint priorisieren.')
+    if (documents.length === 0) items.push('Erste Gliederung oder Draft hochladen fuer schnellere Score-Vorschau.')
+    if (todosWeek < 2) items.push('Mindestens 2 konkrete Wochenaufgaben mit Datum planen.')
+    if (stress.value > 60) items.push('Stress ist erhoeht: 1 Coaching-Slot oder Fokusblock einplanen.')
+    if (assessment?.recommendedPlan && plan === 'free' && assessment.recommendedPlan !== 'free') {
+      items.push('Empfohlenen Plan pruefen, um Feedback und PhD-Review zu aktivieren.')
+    }
+    if (items.length === 0) items.push('Sehr gut: Fokus halten und jede Woche eine messbare Abgabe definieren.')
+
+    return items
+  }, [profile, documents.length, todosWeek, stress.value, assessment?.recommendedPlan, plan])
+
+  const latestDocument = documents[0] ?? null
+
+  const appendDocuments = (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const uploadedAt = new Date().toISOString()
+
+    const nextDocs: ThesisDocument[] = Array.from(files).map((file) => ({
+      id:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `doc-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+      uploadedAt,
+    }))
+
+    setDocuments((prev) => {
+      const existing = new Set(prev.map((doc) => documentKey(doc)))
+      const unique = nextDocs.filter((doc) => !existing.has(documentKey(doc)))
+      return unique.length > 0 ? [...unique, ...prev] : prev
+    })
+  }
+
+  const removeDocument = (id: string) => {
+    setDocuments((prev) => prev.filter((doc) => doc.id !== id))
+  }
+
+  const addTodo = () => {
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `todo-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    setTodos((prev) => [{ id, title: '', detail: '', date: today }, ...prev])
+  }
+
+  const updateTodo = (id: string, patch: Partial<TodoItem>) => {
+    setTodos((prev) => prev.map((todo) => (todo.id === id ? { ...todo, ...patch } : todo)))
+  }
+
+  const removeTodo = (id: string) => {
+    setTodos((prev) => prev.filter((todo) => todo.id !== id))
+  }
+
+  const toggleChecklist = (id: string) => {
+    setChecklist((prev) => prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item)))
+  }
+
+  const circumference = 2 * Math.PI * 46
+  const dashOffset = circumference - (progressValue / 100) * circumference
+  const visibleDocs = filteredDocuments.slice(0, 5)
+  const visibleTodos = filteredTodos.slice(0, 5)
+
+  const viewItems: Array<{ id: ThesisView; label: string; icon: JSX.Element; meta: string }> = [
+    { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={15} />, meta: `${progressValue}%` },
+    { id: 'documents', label: 'Dokumente', icon: <FolderOpen size={15} />, meta: `${documents.length}` },
+    { id: 'tasks', label: 'Tasks', icon: <ListTodo size={15} />, meta: `${todos.length}` },
+    {
+      id: 'quality',
+      label: 'Elea Score',
+      icon: <ShieldCheck size={15} />,
+      meta: qualityLocked ? 'Locked' : `${eleaScoreValue}/10`,
+    },
+    { id: 'workbench', label: 'Workbench', icon: <NotepadText size={15} />, meta: `${checklistDone}/${checklist.length}` },
+  ]
+
+  return (
+    <section className="page thesis-page thesis-shell">
+      <aside className="page-card thesis-surface thesis-left-rail">
+        <div className="thesis-rail-head">
+          <p className="thesis-kicker">ELEA Thesis</p>
+          <h1>My Thesis</h1>
+          <p className="thesis-subline">Schneller Zugriff auf die wichtigsten Bereiche ohne Scroll-Zwang.</p>
+        </div>
+
+        <nav className="thesis-rail-nav" aria-label="My Thesis Navigation">
+          {viewItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`thesis-rail-item ${activeView === item.id ? 'active' : ''}`}
+              onClick={() => setActiveView(item.id)}
+            >
+              <span className="thesis-rail-icon">{item.icon}</span>
+              <span className="thesis-rail-text">{item.label}</span>
+              <span className="thesis-rail-meta">{item.meta}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="thesis-rail-footer">
+          <div className="thesis-rail-chip">Plan: {plan.toUpperCase()}</div>
+          <div className={`thesis-rail-chip ${stress.value > 60 ? 'warn' : 'ok'}`}>
+            Stress {stress.value}/100
+          </div>
+        </div>
+      </aside>
+
+      <main className="thesis-right-stage">
+        <header className="page-card thesis-surface thesis-stage-head">
+          <div>
+            <p className="thesis-kicker">My Thesis Dashboard</p>
+            <h2>{activeView === 'overview' ? 'Overview' : viewItems.find((item) => item.id === activeView)?.label}</h2>
+          </div>
+          <div className="thesis-stage-head-kpis">
+            <span className="thesis-chip">Fortschritt {progressValue}%</span>
+            <span className="thesis-chip">Heute {todosToday} Tasks</span>
+            <span className={`thesis-chip ${qualityLocked ? 'warn' : 'ok'}`}>
+              Elea Score {qualityLocked ? 'Locked' : `${eleaScoreValue}/10`}
+            </span>
+          </div>
+        </header>
+
+        {activeView === 'overview' && (
+          <section className="thesis-stage-grid thesis-stage-grid--overview">
+            <article className="page-card thesis-surface thesis-overview-analytics">
+              <div className="thesis-panel-head">
+                <h2>
+                  <BarChart3 size={16} /> Performance Snapshot
+                </h2>
+                <span>Weekly</span>
+              </div>
+
+              <div className="thesis-chart-grid">
+                <div className="thesis-chart-card">
+                  <h3>
+                    <Target size={14} /> Rubrik-Scores
+                  </h3>
+                  <div className="thesis-bars">
+                    {rubricScores.map((item) => (
+                      <div key={item.label} className="thesis-bar-row">
+                        <div className="thesis-bar-head">
+                          <span>{item.label}</span>
+                          <strong>{item.value.toFixed(1)}/10</strong>
+                        </div>
+                        <div className="thesis-bar-track">
+                          <span style={{ width: `${item.value * 10}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="thesis-chart-card">
+                  <h3>
+                    <TrendingUp size={14} /> Progress Trend
+                  </h3>
+                  <svg className="thesis-sparkline" viewBox="0 0 320 102" role="img" aria-label="Produktivitaetsverlauf">
+                    <path className="thesis-sparkline-axis" d="M 8 12 L 8 94 L 312 94" />
+                    <path className="thesis-sparkline-path" d={sparklinePath} />
+                  </svg>
+                  <p className="thesis-chart-note">Kombiniert Fortschritt, Task-Dichte und Stress-Log.</p>
+                </div>
+              </div>
+            </article>
+
+            <article className={`page-card thesis-surface thesis-overview-quality ${qualityLocked ? 'locked' : 'unlocked'}`}>
+              <div className="thesis-panel-head">
+                <h2>
+                  <Sparkles size={16} /> Elea Quality Score
+                </h2>
+                <span>{qualityLocked ? 'Locked' : 'Aktiv'}</span>
+              </div>
+
+              <div className="thesis-quality-main">
+                <div className="thesis-quality-value">{qualityLocked ? '--' : `${eleaScoreValue}/10`}</div>
+                <p className="thesis-quality-copy">
+                  PhD-Level Bewertungsvorschau fuer Struktur, Methodik, Sprache und Zitationen.
+                </p>
+                <div className="score-bar thesis-quality-bar">
+                  <div className="score-fill" style={{ width: `${qualityLocked ? 0 : eleaScorePercent}%` }} />
+                </div>
+                {qualityLocked ? (
+                  <button className="primary" type="button" onClick={() => navigate('/payments')}>
+                    Basic oder Pro freischalten
+                  </button>
+                ) : (
+                  <button className="ghost" type="button" onClick={() => setActiveView('quality')}>
+                    Details anzeigen
+                  </button>
+                )}
+              </div>
+            </article>
+
+            <article className="page-card thesis-surface thesis-overview-metrics">
+              <div className="thesis-overview-metric-grid">
+                <div className="thesis-kpi-card">
+                  <p>Dokumente</p>
+                  <strong>{documents.length}</strong>
+                  <span>{latestDocument ? latestDocument.name : 'Noch kein Upload'}</span>
+                </div>
+                <div className="thesis-kpi-card">
+                  <p>Aufgaben offen</p>
+                  <strong>{todos.length}</strong>
+                  <span>{overdueTodos > 0 ? `${overdueTodos} ueberfaellig` : 'Kein Rueckstand'}</span>
+                </div>
+                <div className="thesis-kpi-card">
+                  <p>Checklist</p>
+                  <strong>{checklistDone}/{checklist.length}</strong>
+                  <span>{checklistRate}% erledigt</span>
+                </div>
+              </div>
+            </article>
+
+            <article className="page-card thesis-surface thesis-overview-signals">
+              <div className="thesis-panel-head">
+                <h2>
+                  <Activity size={16} /> Live Signals
+                </h2>
+                <span>jetzt wichtig</span>
+              </div>
+              <div className="thesis-insight-entry">
+                <div className="thesis-insight-icon">
+                  <CheckCircle2 size={16} />
+                </div>
+                <div>
+                  <strong>Abgabereife</strong>
+                  <p>{checklistDone} Pflichtbausteine sind bereits fertig.</p>
+                </div>
+              </div>
+              <div className="thesis-insight-entry">
+                <div className="thesis-insight-icon">
+                  <CircleAlert size={16} />
+                </div>
+                <div>
+                  <strong>Engpass-Risiko</strong>
+                  <p>{todosWeek < 2 ? 'Wenig Wochenplanung erkannt.' : 'Wochenplanung stabil.'}</p>
+                </div>
+              </div>
+            </article>
+
+            <article className="page-card thesis-surface thesis-overview-docs">
+              <div className="thesis-panel-head">
+                <h2>
+                  <FileText size={16} /> Letzte Dokumente
+                </h2>
+                <button className="ghost" type="button" onClick={() => setActiveView('documents')}>
+                  Alle
+                </button>
+              </div>
+              <div className="doc-list compact thesis-doc-list thesis-doc-list--tight">
+                {visibleDocs.length === 0 ? (
+                  <div className="doc-empty">Noch keine Dokumente.</div>
+                ) : (
+                  visibleDocs.map((doc) => (
+                    <div key={doc.id} className="doc-item">
+                      <div>
+                        <div className="doc-title">{doc.name}</div>
+                        <div className="doc-sub">
+                          {formatBytes(doc.size)} - {formatDocDate(doc.uploadedAt)}
+                        </div>
+                      </div>
+                      <span className="doc-icon">{documentLabel(doc.name)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
+
+            <article className="page-card thesis-surface thesis-overview-todos">
+              <div className="thesis-panel-head">
+                <h2>
+                  <CalendarDays size={16} /> Naechste Aufgaben
+                </h2>
+                <button className="ghost" type="button" onClick={() => setActiveView('tasks')}>
+                  Bearbeiten
+                </button>
+              </div>
+              <div className="todo-list thesis-todo-list thesis-todo-list--tight">
+                {visibleTodos.length === 0 ? (
+                  <div className="todo-empty">Keine Aufgaben vorhanden.</div>
+                ) : (
+                  visibleTodos.map((todo) => (
+                    <div key={todo.id} className="todo-item thesis-todo-item-compact">
+                      <div className="todo-main">
+                        <input
+                          className="todo-input"
+                          value={todo.title}
+                          placeholder="Aufgabe"
+                          onChange={(event) => updateTodo(todo.id, { title: event.target.value })}
+                        />
+                        <input
+                          className="todo-input"
+                          value={todo.detail}
+                          placeholder="Details"
+                          onChange={(event) => updateTodo(todo.id, { detail: event.target.value })}
+                        />
+                      </div>
+                      <div className="todo-controls">
+                        <input
+                          className="todo-date"
+                          type="date"
+                          value={todo.date}
+                          onChange={(event) => updateTodo(todo.id, { date: event.target.value })}
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
+          </section>
+        )}
+
+        {activeView === 'documents' && (
+          <section className="thesis-stage-grid thesis-stage-grid--documents">
+            <article className="page-card thesis-surface thesis-doc-panel thesis-docs-card">
+              <div className="thesis-panel-head">
+                <h2>
+                  <FileText size={16} /> Dokumente
+                </h2>
+                <span>{documents.length} Dateien</span>
+              </div>
+
+              <div className="thesis-upload">
+                <div className="upload-area">
+                  <input
+                    id="thesis-file"
+                    className="upload-input"
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    multiple
+                    onChange={(event) => {
+                      appendDocuments(event.target.files)
+                      event.target.value = ''
+                    }}
+                  />
+                  <label className="upload-label thesis-upload-label" htmlFor="thesis-file">
+                    <div className="upload-title">
+                      <UploadCloud size={14} /> Dokumente hochladen
+                    </div>
+                    <div className="upload-sub">PDF, DOC, DOCX - mehrere Dateien moeglich.</div>
+                  </label>
+                </div>
+
+                <div className="upload-summary">
+                  <div>
+                    <div className="muted">Letzter Upload</div>
+                    <div className="upload-name">{latestDocument ? latestDocument.name : 'Noch kein Dokument'}</div>
+                  </div>
+                  <div className="upload-meta">
+                    <div>{latestDocument ? formatBytes(latestDocument.size) : '--'}</div>
+                    <div>{latestDocument ? formatDocDate(latestDocument.uploadedAt) : '--'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="thesis-doc-toolbar">
+                <label className="thesis-doc-search" htmlFor="thesis-doc-search">
+                  <Search size={14} />
+                  <input
+                    id="thesis-doc-search"
+                    type="text"
+                    placeholder="Datei suchen"
+                    value={docQuery}
+                    onChange={(event) => setDocQuery(event.target.value)}
+                  />
+                </label>
+                <div className="thesis-doc-filter">
+                  <button type="button" className={docFilter === 'all' ? 'active' : ''} onClick={() => setDocFilter('all')}>
+                    <Filter size={12} /> Alle
+                  </button>
+                  <button type="button" className={docFilter === 'pdf' ? 'active' : ''} onClick={() => setDocFilter('pdf')}>
+                    PDF
+                  </button>
+                  <button type="button" className={docFilter === 'docx' ? 'active' : ''} onClick={() => setDocFilter('docx')}>
+                    DOCX
+                  </button>
+                  <button type="button" className={docFilter === 'doc' ? 'active' : ''} onClick={() => setDocFilter('doc')}>
+                    DOC
+                  </button>
+                </div>
+              </div>
+
+              {filteredDocuments.length === 0 ? (
+                <div className="doc-empty thesis-mt-0">Keine Dokumente fuer diesen Filter gefunden.</div>
+              ) : (
+                <div className="doc-list compact thesis-doc-list">
+                  {filteredDocuments.map((doc) => (
+                    <div key={doc.id} className="doc-item">
+                      <div>
+                        <div className="doc-title">{doc.name}</div>
+                        <div className="doc-sub">
+                          {formatBytes(doc.size)} - {formatDocDate(doc.uploadedAt)}
+                        </div>
+                      </div>
+                      <div className="thesis-doc-actions">
+                        <span className="doc-icon">{documentLabel(doc.name)}</span>
+                        <button className="ghost" type="button" onClick={() => removeDocument(doc.id)}>
+                          x
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </article>
+
+            <article className="page-card thesis-surface thesis-overview-analytics">
+              <div className="thesis-panel-head">
+                <h2>
+                  <BarChart3 size={16} /> Dokument-Analytics
+                </h2>
+                <span>Uebersicht</span>
+              </div>
+              <div className="thesis-chart-card">
+                <h3>
+                  <FileText size={14} /> Typen-Verteilung
+                </h3>
+                <div className="thesis-doc-type-bars">
+                  {docTypeStats.map((item) => (
+                    <div key={item.label} className="thesis-doc-type-row">
+                      <span>{item.label}</span>
+                      <div className="thesis-doc-type-track">
+                        <i style={{ width: `${item.percent}%` }} />
+                      </div>
+                      <strong>{item.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </article>
+          </section>
+        )}
+
+        {activeView === 'tasks' && (
+          <section className="thesis-stage-grid thesis-stage-grid--tasks">
+            <article className="page-card thesis-surface thesis-todo-panel thesis-todo-card">
+              <div className="thesis-panel-head">
+                <h2>
+                  <CalendarDays size={16} /> Task Board
+                </h2>
+                <button className="primary todo-add" type="button" onClick={addTodo}>
+                  Aufgabe hinzufuegen
+                </button>
+              </div>
+
+              <div className="thesis-todo-stats">
+                <span className="thesis-chip">Heute: {todosToday}</span>
+                <span className="thesis-chip">Diese Woche: {todosWeek}</span>
+                <span className={`thesis-chip ${overdueTodos > 0 ? 'warn' : 'ok'}`}>
+                  {overdueTodos > 0 ? `${overdueTodos} ueberfaellig` : 'Keine ueberfaelligen Aufgaben'}
+                </span>
+              </div>
+
+              <div className="thesis-todo-view">
+                <button type="button" className={todoView === 'all' ? 'active' : ''} onClick={() => setTodoView('all')}>
+                  Alle
+                </button>
+                <button type="button" className={todoView === 'today' ? 'active' : ''} onClick={() => setTodoView('today')}>
+                  Heute
+                </button>
+                <button type="button" className={todoView === 'week' ? 'active' : ''} onClick={() => setTodoView('week')}>
+                  Woche
+                </button>
+                <button
+                  type="button"
+                  className={todoView === 'overdue' ? 'active' : ''}
+                  onClick={() => setTodoView('overdue')}
+                >
+                  Ueberfaellig
+                </button>
+              </div>
+
+              <div className="todo-list thesis-todo-list">
+                {filteredTodos.length === 0 ? (
+                  <div className="todo-empty">Keine Aufgaben in dieser Ansicht.</div>
+                ) : (
+                  filteredTodos.map((todo) => (
+                    <div key={todo.id} className="todo-item">
+                      <div className="todo-main">
+                        <input
+                          className="todo-input"
+                          value={todo.title}
+                          placeholder="Aufgabe"
+                          onChange={(event) => updateTodo(todo.id, { title: event.target.value })}
+                        />
+                        <input
+                          className="todo-input"
+                          value={todo.detail}
+                          placeholder="Details oder naechster Schritt"
+                          onChange={(event) => updateTodo(todo.id, { detail: event.target.value })}
+                        />
+                      </div>
+                      <div className="todo-controls">
+                        <input
+                          className="todo-date"
+                          type="date"
+                          value={todo.date}
+                          onChange={(event) => updateTodo(todo.id, { date: event.target.value })}
+                        />
+                        <button className="ghost todo-remove" type="button" onClick={() => removeTodo(todo.id)}>
+                          Entfernen
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
+
+            <article className="page-card thesis-surface thesis-checklist-card">
+              <div className="thesis-panel-head">
+                <h2>
+                  <ListChecks size={14} /> Submission Checklist
+                </h2>
+                <span>
+                  {checklistDone}/{checklist.length}
+                </span>
+              </div>
+              <div className="checklist thesis-checklist-list">
+                {checklist.map((item) => (
+                  <label key={item.id} className="checklist-item">
+                    <span className="uiverse-checkbox">
+                      <input type="checkbox" checked={item.done} onChange={() => toggleChecklist(item.id)} />
+                      <span className="checkmark" />
+                    </span>
+                    <div>
+                      <div className="checklist-title">{item.title}</div>
+                      <div className="checklist-sub">{item.detail}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </article>
+          </section>
+        )}
+
+        {activeView === 'quality' && (
+          <section className="thesis-stage-grid thesis-stage-grid--quality">
+            <article className={`page-card thesis-surface thesis-quality-card ${qualityLocked ? 'locked' : 'unlocked'}`}>
+              <div className="thesis-panel-head">
+                <h2>
+                  <Sparkles size={16} /> Elea Quality Score
+                </h2>
+                <span>{qualityLocked ? 'Locked' : 'Basic/Pro aktiv'}</span>
+              </div>
+              <div className="thesis-quality-main">
+                <div className="thesis-quality-value">{qualityLocked ? '--' : `${eleaScoreValue}/10`}</div>
+                <p className="thesis-quality-copy">
+                  <strong>PhD-Level Quality Score:</strong> Lassen Sie Ihre Abschlussarbeit (Bachelor, Master, PhD) -
+                  vollstaendig oder in Teilen - blitzschnell auf hoechste wissenschaftliche Standards pruefen. Jeder
+                  Bereich erhaelt Score (1-10), praezise Feedback und Optimierungstipps fuer Top-Noten.
+                </p>
+                <div className="score-bar thesis-quality-bar">
+                  <div className="score-fill" style={{ width: `${qualityLocked ? 0 : eleaScorePercent}%` }} />
+                </div>
+              </div>
+
+              <div className="thesis-quality-sections">
+                <div className="thesis-quality-block">
+                  <h3>Abgedeckte Features</h3>
+                  <p>
+                    Struktur, Inhalt, Methodik, Ergebnisse, Sprache, Zitationen, Originalitaet, Visuals, Ethik & mehr.
+                  </p>
+                </div>
+                <div className="thesis-quality-block">
+                  <h3>Mega-Vorteile</h3>
+                  <ul>
+                    <li>
+                      <strong>Zeitersparnis:</strong> 80% weniger Review-Zeit (Stunden statt Tage im Vergleich zu
+                      manuellem Feedback).
+                    </li>
+                    <li>
+                      <strong>Erfolgsboost:</strong> +25-40% bessere Noten durch praezise Schwaechen-Analyse und Tipps
+                      (basierend auf Rubriken).
+                    </li>
+                    <li>
+                      <strong>Sofort-Insights:</strong> Scores + personalisierte Verbesserungen fuer Fragmente oder
+                      Volltexte.
+                    </li>
+                    <li>
+                      <strong>Top-Qualitaet:</strong> PhD-aehnliche Bewertung hebt Sie von der Masse ab, ideal fuer
+                      Abgabe.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article className="page-card thesis-surface thesis-overview-analytics">
+              <div className="thesis-panel-head">
+                <h2>
+                  <Activity size={16} /> Quality Analytics
+                </h2>
+                <span>Score Treiber</span>
+              </div>
+
+              <div className="thesis-chart-grid">
+                <div className="thesis-chart-card">
+                  <h3>
+                    <Target size={14} /> Rubrik-Scores
+                  </h3>
+                  <div className="thesis-bars">
+                    {rubricScores.map((item) => (
+                      <div key={item.label} className="thesis-bar-row">
+                        <div className="thesis-bar-head">
+                          <span>{item.label}</span>
+                          <strong>{item.value.toFixed(1)}/10</strong>
+                        </div>
+                        <div className="thesis-bar-track">
+                          <span style={{ width: `${item.value * 10}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="thesis-chart-card thesis-chart-ring">
+                  <h3>
+                    <Activity size={14} /> Momentum
+                  </h3>
+                  <div className="thesis-ring-wrap">
+                    <svg className="thesis-ring" viewBox="0 0 118 118">
+                      <circle className="thesis-ring-track" cx="59" cy="59" r="46" />
+                      <circle
+                        className="thesis-ring-progress"
+                        cx="59"
+                        cy="59"
+                        r="46"
+                        strokeDasharray={circumference}
+                        strokeDashoffset={dashOffset}
+                      />
+                    </svg>
+                    <strong>{progressValue}% Fokus-Level</strong>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </section>
+        )}
+
+        {activeView === 'workbench' && (
+          <section className="thesis-stage-grid thesis-stage-grid--workbench">
+            <article className="page-card thesis-surface thesis-notes-panel">
+              <div className="thesis-panel-head">
+                <h2>
+                  <NotepadText size={16} /> Notizen-Speicher
+                </h2>
+                <span>Autosave</span>
+              </div>
+              <div className="thesis-note-grid">
+                <label className="thesis-note-box" htmlFor="notes-chapter">
+                  <span>Kapitel-Fokus</span>
+                  <textarea
+                    id="notes-chapter"
+                    value={notes.chapter}
+                    onChange={(event) => setNotes((prev) => ({ ...prev, chapter: event.target.value }))}
+                    placeholder="Was ist das naechste konkrete Kapitelziel?"
+                  />
+                </label>
+                <label className="thesis-note-box" htmlFor="notes-method">
+                  <span>Methodik To-dos</span>
+                  <textarea
+                    id="notes-method"
+                    value={notes.method}
+                    onChange={(event) => setNotes((prev) => ({ ...prev, method: event.target.value }))}
+                    placeholder="Welche Methode/Statistik muss als naechstes sauber sein?"
+                  />
+                </label>
+                <label className="thesis-note-box" htmlFor="notes-writing">
+                  <span>Schreib-Reminder</span>
+                  <textarea
+                    id="notes-writing"
+                    value={notes.writing}
+                    onChange={(event) => setNotes((prev) => ({ ...prev, writing: event.target.value }))}
+                    placeholder="Formulierungen, Quellen, offene Fragen..."
+                  />
+                </label>
+              </div>
+            </article>
+
+            <article className="page-card thesis-surface thesis-reco-card">
+              <div className="thesis-panel-head">
+                <h2>
+                  <Target size={14} /> Next Best Actions
+                </h2>
+                <span>Priorisiert</span>
+              </div>
+              <ul className="thesis-reco-list">
+                {recommendations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+              <div className="thesis-actions-row">
+                <button className="primary" type="button" onClick={addTodo}>
+                  Als Aufgabe anlegen
+                </button>
+                <button className="ghost" type="button" onClick={() => navigate('/coaching')}>
+                  Coaching oeffnen
+                </button>
+              </div>
+              {qualityLocked && (
+                <p className="thesis-lock-note">
+                  <Lock size={12} /> Echter KI-Qualitaetscheck wird mit Basic oder Pro freigeschaltet.
+                </p>
+              )}
+            </article>
+          </section>
+        )}
+      </main>
+    </section>
+  )
+}
+
+export default MyThesisPage
