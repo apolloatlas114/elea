@@ -1,8 +1,63 @@
+import { Clock3, FolderTree, GraduationCap, PlayCircle } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { STORAGE_KEYS, parseJson } from '../lib/storage'
-import type { SchoolContent, SchoolModule, SchoolProgress } from '../lib/storage'
 import { useAuth } from '../context/AuthContext'
 import { loadSchoolContent, loadSchoolProgress, saveSchoolProgress } from '../lib/supabaseData'
+import { STORAGE_KEYS, parseJson } from '../lib/storage'
+import type { SchoolContent, SchoolModule, SchoolProgress } from '../lib/storage'
+
+const DEMO_SCHOOL_CONTENT: SchoolContent = {
+  modules: [
+    {
+      id: 'demo-methodik',
+      title: 'Methodik Grundlagen',
+      summary: 'Forschungsfrage, Aufbau und roter Faden fuer deine Arbeit.',
+      lessons: [
+        {
+          id: 'demo-methodik-v1',
+          title: 'V1 Forschungsfrage praezisieren',
+          duration: '12:00',
+          summary: 'Wie du aus einem Thema eine pruefbare Frage ableitest.',
+          embedUrl: 'https://www.youtube.com/watch?v=Q33KBiDriJY',
+        },
+        {
+          id: 'demo-methodik-v2',
+          title: 'V2 Aufbau der Methodik',
+          duration: '15:00',
+          summary: 'Struktur fuer Design, Stichprobe und Vorgehen.',
+          embedUrl: 'https://www.youtube.com/watch?v=VfGW0Qiy2I0',
+        },
+        {
+          id: 'demo-methodik-v3',
+          title: 'V3 Guetekriterien',
+          duration: '10:00',
+          summary: 'Reliabilitaet, Validitaet und praktische Einordnung.',
+          embedUrl: 'https://www.youtube.com/watch?v=aircAruvnKk',
+        },
+      ],
+    },
+    {
+      id: 'demo-schreiben',
+      title: 'Wissenschaftliches Schreiben',
+      summary: 'Klare Kapitel, starke Argumentation, saubere Uebergaenge.',
+      lessons: [
+        {
+          id: 'demo-schreiben-v1',
+          title: 'V1 Kapitel logisch aufbauen',
+          duration: '11:00',
+          summary: 'Von Gliederung zu stringenter Argumentationslinie.',
+          embedUrl: 'https://www.youtube.com/watch?v=5MgBikgcWnY',
+        },
+        {
+          id: 'demo-schreiben-v2',
+          title: 'V2 Zitate und Quellenarbeit',
+          duration: '13:00',
+          summary: 'Quellen korrekt einbinden und Plagiate vermeiden.',
+          embedUrl: 'https://www.youtube.com/watch?v=PkZNo7MFNFg',
+        },
+      ],
+    },
+  ],
+}
 
 const createLessonMap = (modules: SchoolModule[]) => {
   const map: Record<string, boolean> = {}
@@ -31,6 +86,29 @@ const formatMinutes = (value: number) => {
   return `${hours}h ${minutes}m`
 }
 
+const toEmbedUrl = (url: string) => {
+  if (!url) return ''
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+
+    if (host.includes('youtu.be')) {
+      const id = parsed.pathname.replace('/', '').trim()
+      return id ? `https://www.youtube.com/embed/${id}` : url
+    }
+
+    if (host.includes('youtube.com')) {
+      if (parsed.pathname.includes('/embed/')) return url
+      const id = parsed.searchParams.get('v')?.trim()
+      return id ? `https://www.youtube.com/embed/${id}` : url
+    }
+
+    return url
+  } catch {
+    return url
+  }
+}
+
 const SchoolPage = () => {
   const [content, setContent] = useState<SchoolContent>(() =>
     parseJson(localStorage.getItem(STORAGE_KEYS.schoolContent), { modules: [] })
@@ -40,9 +118,12 @@ const SchoolPage = () => {
     parseJson<SchoolProgress>(localStorage.getItem(STORAGE_KEYS.schoolProgress), { lessons: {} })
   )
   const [synced, setSynced] = useState(false)
+  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null)
   const { user } = useAuth()
 
-  const modules = content.modules ?? []
+  const storedModules = content.modules ?? []
+  const isDemoContent = storedModules.length === 0
+  const modules = isDemoContent ? DEMO_SCHOOL_CONTENT.modules : storedModules
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.schoolContent, JSON.stringify(content))
@@ -128,7 +209,17 @@ const SchoolPage = () => {
 
   const nextLesson = lessons.find((lesson) => !progress.lessons[lesson.id]) ?? lessons[0]
   const activeLesson = lessons.find((lesson) => lesson.id === progress.lastLessonId) ?? nextLesson
-  const activeEmbed = activeLesson?.embedUrl?.trim() ?? ''
+  const activeEmbed = toEmbedUrl(activeLesson?.embedUrl?.trim() ?? '')
+  const selectedModule = modules.find((module) => module.id === selectedModuleId) ?? modules[0]
+  const selectedLessons = selectedModule?.lessons ?? []
+  const nextLessonInSelected = selectedLessons.find((lesson) => !progress.lessons[lesson.id]) ?? selectedLessons[0]
+
+  useEffect(() => {
+    if (modules.length === 0) return
+    if (selectedModuleId && modules.some((module) => module.id === selectedModuleId)) return
+    const fallbackModuleId = activeLesson?.moduleId ?? modules[0]?.id ?? null
+    setSelectedModuleId(fallbackModuleId)
+  }, [modules, selectedModuleId, activeLesson?.moduleId])
 
   const toggleLesson = (lessonId: string) => {
     setProgress((prev) => ({
@@ -149,165 +240,199 @@ const SchoolPage = () => {
 
   if (!contentLoaded) {
     return (
-      <div className="page school-page">
-        <div className="page-card">
-          <h1>Online School</h1>
-          <p>Inhalte werden geladen...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (modules.length === 0) {
-    return (
-      <div className="page school-page">
-        <div className="page-card">
-          <h1>Online School</h1>
-          <p>Noch keine Videos oder Module vorhanden.</p>
-          <div className="muted">Sobald Inhalte hinterlegt sind, erscheinen sie hier automatisch.</div>
-        </div>
-      </div>
+      <section className="school-page-shell school-loading-card">
+        <h1>Online School</h1>
+        <p>Inhalte werden geladen...</p>
+      </section>
     )
   }
 
   return (
-    <div className="page school-page">
-      <div className="page-card school-overview">
-        <div className="school-intro">
-          <h1>Online School</h1>
-          <p>Dein strukturierter Lernpfad mit Videos, Aufgaben und messbarem Fortschritt.</p>
-          <div className="school-progress">
-            <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${overallProgress}%` }} />
-            </div>
-            <div className="progress-meta">
-              {completedLessons}/{totalLessons} Lektionen abgeschlossen - {overallProgress}% Gesamtfortschritt
-            </div>
+    <section className="school-page-shell">
+      <aside className="school-side school-side-left">
+        <div className="school-side-head">
+          <div className="school-side-badge">
+            <GraduationCap size={16} />
           </div>
-          <div className="school-metrics">
-            <div className="metric-card">
-              <span>Gesehene Zeit</span>
-              <strong>{formatMinutes(watchedMinutes)}</strong>
-            </div>
-            <div className="metric-card">
-              <span>Gesamtzeit</span>
-              <strong>{formatMinutes(totalMinutes)}</strong>
-            </div>
-            <div className="metric-card">
-              <span>Naechste Lektion</span>
-              <strong>{nextLesson?.title ?? 'Alles erledigt'}</strong>
-            </div>
+          <div>
+            <p className="school-overline">ELEA School</p>
+            <h2>Kurse & Lernpfad</h2>
           </div>
         </div>
-        <div className="school-player">
-          {activeEmbed ? (
-            <div className="player-embed">
+
+        <div className="school-side-title-row">
+          <h3>Module</h3>
+          <span>{modules.length}</span>
+        </div>
+
+        <div className="school-module-list">
+          {modules.map((module, index) => {
+            const completed = module.lessons.filter((lesson) => progress.lessons[lesson.id]).length
+            const percent = module.lessons.length === 0 ? 0 : Math.round((completed / module.lessons.length) * 100)
+            const firstLessonId = module.lessons[0]?.id
+            const active = selectedModule?.id === module.id
+
+            return (
+              <button
+                key={module.id}
+                type="button"
+                className={`school-module-button ${active ? 'active' : ''}`}
+                onClick={() => {
+                  setSelectedModuleId(module.id)
+                  if (firstLessonId) setActiveLesson(firstLessonId)
+                }}
+              >
+                <div className="school-module-head">
+                  <span>
+                    {String(index + 1).padStart(2, '0')} {module.title}
+                  </span>
+                  <strong>{percent}%</strong>
+                </div>
+                <p>{module.summary}</p>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="school-side-note">
+          <p className="school-side-note-title">YouTube Einbettung</p>
+          <p>Deine spaetere Admin-Plattform kann pro Lektion einfach die `embedUrl` speichern.</p>
+          {isDemoContent && <p className="school-side-note-demo">Demo-Inhalte aktiv bis echte School-Daten hinterlegt sind.</p>}
+        </div>
+      </aside>
+
+      <main className="school-main">
+        <header className="school-main-head">
+          <p className="school-overline">Online School</p>
+          <h1>{selectedModule?.title ?? 'Lernmodul'}</h1>
+          <p>Waehle oben ein Video (V1, V2, V3 ...). Unten wird die gewaehlte Lektion abgespielt.</p>
+        </header>
+
+        <section className="school-lesson-strip">
+          {selectedLessons.map((lesson, index) => {
+            const isActive = activeLesson?.id === lesson.id
+            return (
+              <button
+                key={lesson.id}
+                type="button"
+                className={`school-lesson-tile ${isActive ? 'active' : ''}`}
+                onClick={() => setActiveLesson(lesson.id)}
+              >
+                <div className="school-lesson-tile-top">
+                  <span className="school-lesson-tag">V{index + 1}</span>
+                  <span className="school-lesson-time">
+                    <Clock3 size={12} />
+                    {lesson.duration}
+                  </span>
+                </div>
+                <strong>{lesson.title}</strong>
+                <p>{lesson.summary}</p>
+              </button>
+            )
+          })}
+          {selectedLessons.length === 0 && (
+            <div className="school-lesson-empty">
+              Fuer dieses Modul sind noch keine Videos hinterlegt.
+            </div>
+          )}
+        </section>
+
+        <section className="school-player-card">
+          <div className="school-player-frame">
+            {activeEmbed ? (
               <iframe
                 src={activeEmbed}
                 title={activeLesson?.title ?? 'Video'}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                referrerPolicy="strict-origin-when-cross-origin"
                 allowFullScreen
               />
-            </div>
-          ) : (
-            <div className="player-thumb">Video</div>
-          )}
-          <div className="player-meta">
-            <div>
-              <div className="player-title">{activeLesson?.title ?? 'Video auswaehlen'}</div>
-              <div className="player-sub">
-                {activeLesson?.moduleTitle ?? ''} - {activeLesson?.duration ?? ''}
+            ) : (
+              <div className="school-player-empty">
+                <PlayCircle size={18} />
+                Kein Video-Link hinterlegt
               </div>
+            )}
+          </div>
+
+          <div className="school-player-meta">
+            <div>
+              <h3>{activeLesson?.title ?? 'Video auswaehlen'}</h3>
+              <p>
+                {activeLesson?.moduleTitle ?? 'Kein Modul'} - {activeLesson?.duration ?? '--'}
+              </p>
             </div>
-            <span className="player-pill">
+            <span className={`school-chip ${activeLesson && progress.lessons[activeLesson.id] ? 'done' : ''}`}>
               {activeLesson && progress.lessons[activeLesson.id] ? 'Fertig' : 'Weiter'}
             </span>
           </div>
-          <div className="player-actions">
+
+          <div className="school-player-actions">
             <button
-              className="primary"
-              onClick={() => {
-                if (activeLesson?.id) setActiveLesson(activeLesson.id)
-              }}
-            >
-              Video starten
-            </button>
-            <button
-              className="ghost"
+              type="button"
+              className="school-btn school-btn-primary"
               onClick={() => {
                 if (activeLesson?.id) toggleLesson(activeLesson.id)
               }}
             >
               {activeLesson && progress.lessons[activeLesson.id] ? 'Als offen markieren' : 'Als gesehen markieren'}
             </button>
+            <button
+              type="button"
+              className="school-btn school-btn-ghost"
+              onClick={() => {
+                if (nextLessonInSelected?.id) setActiveLesson(nextLessonInSelected.id)
+              }}
+            >
+              Naechste Lektion
+            </button>
+          </div>
+        </section>
+      </main>
+
+      <aside className="school-side school-side-right">
+        <div className="school-side-title-row">
+          <h3>Lernstatus</h3>
+        </div>
+
+        <div className="school-stats">
+          <div className="school-stat-card">
+            <p>Gesamtfortschritt</p>
+            <strong>{overallProgress}%</strong>
+          </div>
+          <div className="school-stat-card">
+            <p>Gesehene Zeit</p>
+            <strong>{formatMinutes(watchedMinutes)}</strong>
+          </div>
+          <div className="school-stat-card">
+            <p>Gesamtzeit</p>
+            <strong>{formatMinutes(totalMinutes)}</strong>
           </div>
         </div>
-      </div>
 
-      <div className="page-card school-curriculum">
-        <div className="panel-head">
-          <h2>Curriculum</h2>
-          <div className="muted">Lektion anklicken, Fortschritt abhaken</div>
+        <div className="school-quick-card">
+          <p className="school-quick-label">Naechste Lektion</p>
+          <h4>{nextLesson?.title ?? 'Alles erledigt'}</h4>
+          <button
+            type="button"
+            className="school-btn school-btn-ghost full"
+            onClick={() => {
+              if (nextLesson?.id) setActiveLesson(nextLesson.id)
+            }}
+          >
+            Jetzt oeffnen
+          </button>
         </div>
-        <div className="school-modules">
-          {modules.map((module, index) => {
-            const completed = module.lessons.filter((lesson) => progress.lessons[lesson.id]).length
-            const progressValue =
-              module.lessons.length === 0 ? 0 : Math.round((completed / module.lessons.length) * 100)
-            return (
-              <div key={module.id} className="module-card">
-                <div className="module-head">
-                  <div>
-                    <div className="module-title">
-                      {String(index + 1).padStart(2, '0')} {module.title}
-                    </div>
-                    <div className="module-sub">{module.summary}</div>
-                  </div>
-                  <div className="module-progress">
-                    <span>
-                      {completed}/{module.lessons.length} Lektionen
-                    </span>
-                    <div className="progress-bar small">
-                      <div className="progress-fill" style={{ width: `${progressValue}%` }} />
-                    </div>
-                  </div>
-                </div>
-                <div className="lesson-grid">
-                  {module.lessons.map((lesson) => {
-                    const isCompleted = progress.lessons[lesson.id]
-                    return (
-                      <div key={lesson.id} className={`lesson-card ${isCompleted ? 'completed' : ''}`}>
-                        <div className="lesson-row">
-                          <div className="lesson-title">{lesson.title}</div>
-                          <div className="lesson-duration">{lesson.duration}</div>
-                        </div>
-                        <div className="lesson-sub">{lesson.summary}</div>
-                        <div className="lesson-actions">
-                          <button className="lesson-play" onClick={() => setActiveLesson(lesson.id)}>
-                            &gt;
-                          </button>
-                          <label className="lesson-check">
-                            <span className="uiverse-checkbox">
-                              <input
-                                type="checkbox"
-                                checked={isCompleted}
-                                onChange={() => toggleLesson(lesson.id)}
-                              />
-                              <span className="checkmark" />
-                            </span>
-                            Fertig
-                          </label>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })}
+
+        <div className="school-quick-card">
+          <div className="school-quick-head">
+            <FolderTree size={15} />
+            <span>Admin-ready Struktur</span>
+          </div>
+          <p>YouTube-Iframes werden direkt aus der `embedUrl` jeder Lektion geladen.</p>
         </div>
-      </div>
-    </div>
+      </aside>
+    </section>
   )
 }
 

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { AuthUser } from '../lib/auth'
 import { getCurrentUser, signIn, signOut, signUp } from '../lib/auth'
+import { bootstrapAdminSessionEvent, trackActivityEvent } from '../lib/adminData'
 import { clearUserLocalState, STORAGE_KEYS } from '../lib/storage'
 
 type AuthState = {
@@ -34,19 +35,40 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const login = useCallback(async (email: string, password: string) => {
     const next = await signIn(email, password)
     setUser(next)
+    void trackActivityEvent({
+      eventType: 'login_success',
+      userId: next.id,
+      email: next.email,
+      pagePath: '/auth',
+    })
+    void bootstrapAdminSessionEvent(next.id, next.email)
   }, [])
 
   const register = useCallback(async (email: string, password: string) => {
     const next = await signUp(email, password)
     setUser(next)
+    void trackActivityEvent({
+      eventType: 'register_success',
+      userId: next.id,
+      email: next.email,
+      pagePath: '/auth',
+    })
   }, [])
 
   const logout = useCallback(async () => {
+    if (user) {
+      void trackActivityEvent({
+        eventType: 'logout',
+        userId: user.id,
+        email: user.email,
+        pagePath: window.location.pathname,
+      })
+    }
     await signOut()
     setUser(null)
     clearUserLocalState()
     localStorage.removeItem(STORAGE_KEYS.lastUserId)
-  }, [])
+  }, [user])
 
   useEffect(() => {
     if (!user) return

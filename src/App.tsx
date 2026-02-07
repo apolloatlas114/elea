@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { PanicModal } from './components/PanicModal'
 import { useAuth } from './context/AuthContext'
+import { recordSecurityEvent, trackActivityEvent } from './lib/adminData'
 import { useStress } from './hooks/useStress'
+import { isAdminEmail } from './lib/admin'
+import AdminDashboardPage from './pages/AdminDashboardPage'
+import AdminLoginPage from './pages/AdminLoginPage'
 import AuthPage from './pages/AuthPage'
 import CoachingPage from './pages/CoachingPage'
 import CommunityPage from './pages/CommunityPage'
@@ -17,6 +21,8 @@ export const App = () => {
     <BrowserRouter>
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
+        <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route path="/admin" element={<AdminRoute />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/my-thesis" element={<MyThesisPage />} />
@@ -99,6 +105,56 @@ const AppLayout = () => {
     return () => window.clearTimeout(timer)
   }, [stressSaved])
 
+  useEffect(() => {
+    if (!user) return
+    void trackActivityEvent({
+      eventType: 'page_view',
+      userId: user.id,
+      email: user.email,
+      pagePath: location.pathname,
+    })
+  }, [location.pathname, user?.id, user?.email])
+
+  useEffect(() => {
+    if (!user) return
+
+    const handleError = (event: ErrorEvent) => {
+      void recordSecurityEvent({
+        severity: 'medium',
+        category: 'frontend_error',
+        title: event.message || 'Unbekannter Frontend Fehler',
+        userId: user.id,
+        details: {
+          filename: event.filename,
+          line: event.lineno,
+          col: event.colno,
+          path: location.pathname,
+        },
+      })
+    }
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      void recordSecurityEvent({
+        severity: 'medium',
+        category: 'unhandled_rejection',
+        title: 'Unhandled Promise Rejection',
+        userId: user.id,
+        details: {
+          reason: String(event.reason ?? 'unknown'),
+          path: location.pathname,
+        },
+      })
+    }
+
+    window.addEventListener('error', handleError)
+    window.addEventListener('unhandledrejection', handleUnhandledRejection)
+
+    return () => {
+      window.removeEventListener('error', handleError)
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+    }
+  }, [location.pathname, user?.id])
+
   const handleStressSave = () => {
     const saved = stress.save()
     if (saved) setStressSaved(true)
@@ -178,8 +234,10 @@ const AppLayout = () => {
     )
   }
 
+  const isThesisRoute = location.pathname === '/my-thesis'
+
   return (
-    <div className="app">
+    <div className={`app ${isThesisRoute ? 'app--thesis-fit' : ''}`}>
       <header className={`topbar ${menuOpen ? 'menu-open' : ''}`}>
         <div className="brand">
           <img className="brand-logo" src="/elealogo.png" alt="ELEA" />
@@ -351,4 +409,21 @@ const ProtectedRoute = () => {
   }
 
   return <AppLayout />
+}
+
+const AdminRoute = () => {
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="page">
+        <div className="page-card">Lade Session...</div>
+      </div>
+    )
+  }
+
+  if (!user) return <Navigate to="/admin/login" replace />
+  if (!isAdminEmail(user.email)) return <Navigate to="/admin/login?forbidden=1" replace />
+
+  return <AdminDashboardPage />
 }

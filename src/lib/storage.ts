@@ -61,6 +61,7 @@ export type TodoItem = {
   title: string
   detail: string
   date: string
+  done: boolean
 }
 
 export type ThesisDocument = {
@@ -106,6 +107,7 @@ export const STORAGE_KEYS = {
   todos: 'elea_todos',
   thesisDocuments: 'elea_thesis_documents',
   thesisChecklist: 'elea_thesis_checklist',
+  thesisNotes: 'elea_thesis_notes',
   lastUserId: 'elea_last_user_id',
 }
 
@@ -124,6 +126,7 @@ export const USER_LOCAL_KEYS = [
   STORAGE_KEYS.todos,
   STORAGE_KEYS.thesisDocuments,
   STORAGE_KEYS.thesisChecklist,
+  STORAGE_KEYS.thesisNotes,
 ]
 
 export const clearUserLocalState = () => {
@@ -159,7 +162,8 @@ export const normalizeTodos = (value: unknown): TodoItem[] => {
     if (!date && typeof raw?.slotId === 'string' && raw.slotId) {
       date = today
     }
-    return { id, title, detail, date }
+    const done = typeof raw?.done === 'boolean' ? raw.done : false
+    return { id, title, detail, date, done }
   })
 }
 

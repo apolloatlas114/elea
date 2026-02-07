@@ -155,6 +155,7 @@ export const loadTodos = async (userId: string): Promise<TodoItem[]> => {
     title: row.title ?? '',
     detail: row.detail ?? '',
     date: row.due_date ?? todayIso(),
+    done: false,
   }))
 }
 

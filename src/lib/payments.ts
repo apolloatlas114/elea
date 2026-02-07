@@ -1,3 +1,5 @@
+import { recordFinanceEvent } from './adminData'
+
 type CheckoutProduct = 'free' | 'basic' | 'pro' | 'lektorat'
 
 export const startCheckout = (product: CheckoutProduct) => {
@@ -7,4 +9,20 @@ export const startCheckout = (product: CheckoutProduct) => {
       : `Checkout für ${product.toUpperCase()} wird vorbereitet.`
   alert(message)
   console.info('Checkout gestartet:', product)
+
+  const amountByPlan: Record<CheckoutProduct, number> = {
+    free: 0,
+    basic: 9900,
+    pro: 19900,
+    lektorat: 29900,
+  }
+
+  if (product !== 'free') {
+    void recordFinanceEvent({
+      plan: product === 'lektorat' ? 'pro' : product,
+      amountCents: amountByPlan[product],
+      status: 'initiated',
+      source: 'checkout_button',
+    })
+  }
 }
