@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { AuthUser } from '../lib/auth'
 import { getCurrentUser, signIn, signOut, signUp } from '../lib/auth'
+import { clearUserLocalState, STORAGE_KEYS } from '../lib/storage'
 
 type AuthState = {
   user: AuthUser | null
@@ -43,7 +44,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = useCallback(async () => {
     await signOut()
     setUser(null)
+    clearUserLocalState()
+    localStorage.removeItem(STORAGE_KEYS.lastUserId)
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const lastUserId = localStorage.getItem(STORAGE_KEYS.lastUserId)
+    if (lastUserId && lastUserId !== user.id) {
+      clearUserLocalState()
+    }
+    localStorage.setItem(STORAGE_KEYS.lastUserId, user.id)
+  }, [user?.id])
 
   const value = useMemo(
     () => ({

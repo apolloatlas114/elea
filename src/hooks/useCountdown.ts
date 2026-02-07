@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { parseDeadlineDate } from '../lib/storage'
 
-export const useCountdown = (targetDate: string) => {
+export const useCountdown = (targetDate?: string | null) => {
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
@@ -8,7 +9,7 @@ export const useCountdown = (targetDate: string) => {
     return () => clearInterval(timer)
   }, [])
 
-  const target = useMemo(() => new Date(targetDate), [targetDate])
+  const target = useMemo(() => parseDeadlineDate(targetDate) ?? new Date(), [targetDate])
   const diff = Math.max(target.getTime() - now.getTime(), 0)
 
   const days = Math.floor(diff / (1000 * 60 * 60 * 24))

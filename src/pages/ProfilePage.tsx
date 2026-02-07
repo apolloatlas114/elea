@@ -7,7 +7,7 @@ const ProfilePage = () => {
   const profile = parseJson<Profile | null>(localStorage.getItem(STORAGE_KEYS.profile), null)
 
   return (
-    <div className="page">
+    <div className="page profile-page">
       <div className="page-card">
         <h1>Profil</h1>
         <p>Deine Stammdaten für Planung und Psychologie.</p>
