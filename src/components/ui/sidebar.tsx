@@ -49,7 +49,7 @@ export const SidebarProvider = ({ children }: { children: ReactNode }) => {
         {mobileOpen && (
           <button
             type="button"
-            aria-label="Sidebar schliessen"
+            aria-label="Sidebar schließen"
             className="fixed inset-0 z-[60] bg-slate-900/35 lg:hidden"
             onClick={() => setMobileOpen(false)}
           />
@@ -96,7 +96,7 @@ export const Sidebar = ({ className, side = 'left', children, ...props }: Sideba
             className="mt-3 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
             onClick={() => setMobileOpen(false)}
           >
-            Schliessen
+            Schließen
           </button>
         </aside>
       )}

@@ -1,5 +1,6 @@
 import { Clock3, FolderTree, GraduationCap, PlayCircle } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import LoadingTicker from '../components/LoadingTicker'
 import { useAuth } from '../context/AuthContext'
 import { loadSchoolContent, loadSchoolProgress, saveSchoolProgress } from '../lib/supabaseData'
 import { STORAGE_KEYS, parseJson } from '../lib/storage'
@@ -10,27 +11,27 @@ const DEMO_SCHOOL_CONTENT: SchoolContent = {
     {
       id: 'demo-methodik',
       title: 'Methodik Grundlagen',
-      summary: 'Forschungsfrage, Aufbau und roter Faden fuer deine Arbeit.',
+      summary: 'Forschungsfrage, Aufbau und roter Faden für deine Arbeit.',
       lessons: [
         {
           id: 'demo-methodik-v1',
-          title: 'V1 Forschungsfrage praezisieren',
+          title: 'V1 Forschungsfrage präzisieren',
           duration: '12:00',
-          summary: 'Wie du aus einem Thema eine pruefbare Frage ableitest.',
+          summary: 'Wie du aus einem Thema eine prüfbare Frage ableitest.',
           embedUrl: 'https://www.youtube.com/watch?v=Q33KBiDriJY',
         },
         {
           id: 'demo-methodik-v2',
           title: 'V2 Aufbau der Methodik',
           duration: '15:00',
-          summary: 'Struktur fuer Design, Stichprobe und Vorgehen.',
+          summary: 'Struktur für Design, Stichprobe und Vorgehen.',
           embedUrl: 'https://www.youtube.com/watch?v=VfGW0Qiy2I0',
         },
         {
           id: 'demo-methodik-v3',
-          title: 'V3 Guetekriterien',
+          title: 'V3 Gütekriterien',
           duration: '10:00',
-          summary: 'Reliabilitaet, Validitaet und praktische Einordnung.',
+          summary: 'Reliabilität, Validität und praktische Einordnung.',
           embedUrl: 'https://www.youtube.com/watch?v=aircAruvnKk',
         },
       ],
@@ -38,7 +39,7 @@ const DEMO_SCHOOL_CONTENT: SchoolContent = {
     {
       id: 'demo-schreiben',
       title: 'Wissenschaftliches Schreiben',
-      summary: 'Klare Kapitel, starke Argumentation, saubere Uebergaenge.',
+      summary: 'Klare Kapitel, starke Argumentation, saubere Übergänge.',
       lessons: [
         {
           id: 'demo-schreiben-v1',
@@ -241,8 +242,10 @@ const SchoolPage = () => {
   if (!contentLoaded) {
     return (
       <section className="school-page-shell school-loading-card">
-        <h1>Online School</h1>
-        <p>Inhalte werden geladen...</p>
+        <LoadingTicker
+          prefix="School lädt"
+          words={['Module', 'Lektionen', 'Fortschritt', 'Inhalte', 'Videoansichten']}
+        />
       </section>
     )
   }
@@ -296,7 +299,7 @@ const SchoolPage = () => {
 
         <div className="school-side-note">
           <p className="school-side-note-title">YouTube Einbettung</p>
-          <p>Deine spaetere Admin-Plattform kann pro Lektion einfach die `embedUrl` speichern.</p>
+          <p>Deine spätere Admin-Plattform kann pro Lektion einfach die `embedUrl` speichern.</p>
           {isDemoContent && <p className="school-side-note-demo">Demo-Inhalte aktiv bis echte School-Daten hinterlegt sind.</p>}
         </div>
       </aside>
@@ -305,7 +308,7 @@ const SchoolPage = () => {
         <header className="school-main-head">
           <p className="school-overline">Online School</p>
           <h1>{selectedModule?.title ?? 'Lernmodul'}</h1>
-          <p>Waehle oben ein Video (V1, V2, V3 ...). Unten wird die gewaehlte Lektion abgespielt.</p>
+          <p>Wähle oben ein Video (V1, V2, V3 ...). Unten wird die gewählte Lektion abgespielt.</p>
         </header>
 
         <section className="school-lesson-strip">
@@ -332,7 +335,7 @@ const SchoolPage = () => {
           })}
           {selectedLessons.length === 0 && (
             <div className="school-lesson-empty">
-              Fuer dieses Modul sind noch keine Videos hinterlegt.
+              Für dieses Modul sind noch keine Videos hinterlegt.
             </div>
           )}
         </section>
@@ -357,7 +360,7 @@ const SchoolPage = () => {
 
           <div className="school-player-meta">
             <div>
-              <h3>{activeLesson?.title ?? 'Video auswaehlen'}</h3>
+              <h3>{activeLesson?.title ?? 'Video auswählen'}</h3>
               <p>
                 {activeLesson?.moduleTitle ?? 'Kein Modul'} - {activeLesson?.duration ?? '--'}
               </p>
@@ -384,7 +387,7 @@ const SchoolPage = () => {
                 if (nextLessonInSelected?.id) setActiveLesson(nextLessonInSelected.id)
               }}
             >
-              Naechste Lektion
+              Nächste Lektion
             </button>
           </div>
         </section>
@@ -411,7 +414,7 @@ const SchoolPage = () => {
         </div>
 
         <div className="school-quick-card">
-          <p className="school-quick-label">Naechste Lektion</p>
+          <p className="school-quick-label">Nächste Lektion</p>
           <h4>{nextLesson?.title ?? 'Alles erledigt'}</h4>
           <button
             type="button"
@@ -420,7 +423,7 @@ const SchoolPage = () => {
               if (nextLesson?.id) setActiveLesson(nextLesson.id)
             }}
           >
-            Jetzt oeffnen
+            Jetzt öffnen
           </button>
         </div>
 

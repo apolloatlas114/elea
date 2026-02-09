@@ -35,7 +35,7 @@ const templateRows = [
   { name: 'Abstract Template', downloads: 1247, weekly: 211, access: 'Anonymisierte Metadaten' },
   { name: 'Methodik Checklist', downloads: 892, weekly: 184, access: 'Premium-Upload, anonymisiert' },
   { name: 'Diskussion Leitfaden', downloads: 664, weekly: 132, access: 'Premium-Upload, anonymisiert' },
-  { name: 'Verteidigung Struktur', downloads: 518, weekly: 107, access: 'Community-geprueft' },
+  { name: 'Verteidigung Struktur', downloads: 518, weekly: 107, access: 'Community-geprüft' },
 ]
 
 const buddyPool = [
@@ -104,7 +104,7 @@ const CommunityPage = () => {
           <article className="community-kpi-card panel-card">
             <p>Aktive Studierende</p>
             <strong>1.947</strong>
-            <span>Woechentlich aktive, anonymisierte Community-Sessions</span>
+            <span>Wöchentlich aktive, anonymisierte Community-Sessions</span>
           </article>
           <article className="community-kpi-card panel-card">
             <p>Template Downloads</p>
@@ -114,7 +114,7 @@ const CommunityPage = () => {
           <article className="community-kpi-card panel-card">
             <p>Double Opt-in Matches</p>
             <strong>286</strong>
-            <span>Buddy Release fuer alle, auch FREE User</span>
+            <span>Buddy Release für alle, auch FREE User</span>
           </article>
         </section>
 
@@ -134,7 +134,7 @@ const CommunityPage = () => {
                     </div>
                     <div className="community-score-grid">
                       <span>Struktur: {row.structure.toFixed(1)}/10</span>
-                      <span>Originalitaet: {row.originality.toFixed(1)}/10</span>
+                      <span>Originalität: {row.originality.toFixed(1)}/10</span>
                       <span>Quality: {row.quality.toFixed(1)}/10</span>
                     </div>
                   </li>
@@ -147,7 +147,7 @@ const CommunityPage = () => {
             <div className="community-section">
               <header>
                 <h2>Trends - fach-spezifisch</h2>
-                <p>Wo Studierende aktuell am meisten haengen und was nachweislich hilft.</p>
+                <p>Wo Studierende aktuell am meisten hängen und was nachweislich hilft.</p>
               </header>
               <div className="community-trend-grid">
                 {trendRows.map((trend) => (
@@ -205,7 +205,7 @@ const CommunityPage = () => {
                 <div className="community-rule-card">
                   <CheckCircle2 size={15} />
                   <span>
-                    Buddy Release fuer alle. Mindestregel: mind. 1 Partner mit Aktivitaets-Score {`>=${matchingRule.activityThreshold}`} und
+                    Buddy Release für alle. Mindestregel: mind. 1 Partner mit Aktivitäts-Score {`>=${matchingRule.activityThreshold}`} und
                     Quality Score {`>=${matchingRule.qualityThreshold.toFixed(1)}`}.
                   </span>
                 </div>
@@ -216,7 +216,7 @@ const CommunityPage = () => {
                   <article key={buddy.code} className="community-buddy-item">
                     <strong>{buddy.code}</strong>
                     <p>{buddy.semester}</p>
-                    <small>Aktivitaet: {buddy.activityScore}</small>
+                    <small>Aktivität: {buddy.activityScore}</small>
                     <small>Quality: {buddy.qualityScore.toFixed(1)}</small>
                     <span>{buddy.status}</span>
                   </article>

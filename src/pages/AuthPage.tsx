@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import LoadingTicker from '../components/LoadingTicker'
 import { useAuth } from '../context/AuthContext'
 
 const AuthPage = () => {
@@ -63,12 +64,12 @@ const AuthPage = () => {
     setError(null)
 
     if (password.length < 8) {
-      setError('Bitte waehle ein Passwort mit mindestens 8 Zeichen.')
+      setError('Bitte wähle ein Passwort mit mindestens 8 Zeichen.')
       return
     }
 
     if (password !== confirmPassword) {
-      setError('Die Passwoerter stimmen nicht ueberein.')
+      setError('Die Passwörter stimmen nicht überein.')
       return
     }
 
@@ -91,11 +92,11 @@ const AuthPage = () => {
         <section className="auth-v0-card auth-v0-main" aria-busy={loading}>
           <header className="auth-v0-header">
             <img className="auth-v0-logo" src="/elealogoneu.png" alt="elea" />
-            <h1>{mode === 'login' ? 'Willkommen zurueck' : 'Konto erstellen'}</h1>
+            <h1>{mode === 'login' ? 'Willkommen zurück' : 'Konto erstellen'}</h1>
             <p>
               {mode === 'login'
                 ? 'Logge dich ein und arbeite direkt in deinem Thesis-System weiter.'
-                : 'Nutze das Registrierungsformular und starte sofort in dein persoenliches Thesis-System.'}
+                : 'Nutze das Registrierungsformular und starte sofort in dein persönliches Thesis-System.'}
             </p>
           </header>
 
@@ -103,7 +104,7 @@ const AuthPage = () => {
             <form className="auth-v0-form" onSubmit={handleSubmit}>
               {registrationPendingEmail && (
                 <div className="auth-v0-notice" role="status">
-                  Registrierung erfolgreich. Bitte bestaetige jetzt deine E-Mail-Adresse:
+                  Registrierung erfolgreich. Bitte bestätige jetzt deine E-Mail-Adresse:
                   <strong>{registrationPendingEmail}</strong>
                 </div>
               )}
@@ -187,7 +188,7 @@ const AuthPage = () => {
               {error && <div className="auth-v0-error">{error}</div>}
 
               <button className="auth-v0-primary" type="submit" disabled={loading}>
-                {loading ? 'Bitte warten...' : 'Login'}
+                {loading ? <LoadingTicker variant="inline" prefix="Lade" words={['Login', 'Session', 'Profil', 'Sicherheit', 'Start']} /> : 'Login'}
               </button>
             </form>
           ) : (
@@ -256,7 +257,7 @@ const AuthPage = () => {
               {error && <div className="auth-v0-error">{error}</div>}
 
               <button className="auth-v0-primary" type="submit" disabled={loading}>
-                {loading ? 'Bitte warten...' : 'Create Account'}
+                {loading ? <LoadingTicker variant="inline" prefix="Lade" words={['Konto', 'Daten', 'Profil', 'Zugang', 'Start']} /> : 'Create Account'}
               </button>
             </form>
           )}
@@ -277,7 +278,7 @@ const AuthPage = () => {
           <p className="auth-v0-muted">
             {mode === 'login'
               ? 'Mit dem Login startest du direkt im FREE-Bereich.'
-              : 'Nach der Registrierung pruefen wir ggf. zuerst deine E-Mail-Bestaetigung.'}
+              : 'Nach der Registrierung prüfen wir ggf. zuerst deine E-Mail-Bestätigung.'}
           </p>
         </section>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import LoadingTicker from './components/LoadingTicker'
 import { PanicModal } from './components/PanicModal'
 import { useAuth } from './context/AuthContext'
 import { recordSecurityEvent, trackActivityEvent } from './lib/adminData'
@@ -268,7 +269,7 @@ const AppLayout = () => {
             type="button"
             aria-expanded={menuOpen}
             aria-controls="primary-nav"
-            aria-label={menuOpen ? 'Navigation schliessen' : 'Navigation oeffnen'}
+            aria-label={menuOpen ? 'Navigation schließen' : 'Navigation öffnen'}
             onClick={() => {
               setMenuOpen((prev) => !prev)
               setUserMenuOpen(false)
@@ -315,7 +316,7 @@ const AppLayout = () => {
             <button
               className="avatar-toggle"
               type="button"
-              aria-label="User-Menue"
+              aria-label="User-Menü"
               aria-expanded={userMenuOpen}
               onClick={() => setUserMenuOpen((prev) => !prev)}
             >
@@ -342,7 +343,7 @@ const AppLayout = () => {
       </header>
 
       {menuOpen && (
-        <button className="nav-backdrop" type="button" aria-label="Menue schliessen" onClick={() => setMenuOpen(false)} />
+        <button className="nav-backdrop" type="button" aria-label="Menü schließen" onClick={() => setMenuOpen(false)} />
       )}
 
       <Outlet />
@@ -376,8 +377,8 @@ const AppLayout = () => {
           <div className="referral-tooltip" role="note">
             <h3>Empfehlen und sparen</h3>
             <p>
-              wenn du uns weiterempfiehlst und dein freund sich basic oder pro sichert erhälst du 15% und dein freund 15% Rabatt
-              auf basic oder pro!
+              Wenn du elea weiterempfiehlst und dein Freund BASIC oder PRO bucht, erhaltet ihr beide 10 % Rabatt auf
+              BASIC oder PRO.
             </p>
             <div className="referral-cta">
               <span aria-hidden="true">➜</span>
@@ -399,7 +400,11 @@ const ProtectedRoute = () => {
   if (loading) {
     return (
       <div className="page">
-        <div className="page-card">Lade Session...</div>
+        <LoadingTicker
+          className="page-loader"
+          prefix="Lade"
+          words={['Session', 'Zugänge', 'Sicherheit', 'Profil', 'Dashboard']}
+        />
       </div>
     )
   }
@@ -417,7 +422,11 @@ const AdminRoute = () => {
   if (loading) {
     return (
       <div className="page">
-        <div className="page-card">Lade Session...</div>
+        <LoadingTicker
+          className="page-loader"
+          prefix="Lade"
+          words={['Admin-Daten', 'KPIs', 'Uploads', 'Alerts', 'Berechtigungen']}
+        />
       </div>
     )
   }

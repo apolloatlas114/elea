@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Activity, AlertTriangle, Bell, ChartColumn, CircleCheck, FileText, RefreshCw, Search, Shield, Sparkles, Users } from 'lucide-react'
+import LoadingTicker from '../components/LoadingTicker'
 import { useAuth } from '../context/AuthContext'
 import { hasConfiguredAdminEmails } from '../lib/admin'
 import { type AdminSnapshot, createOpsTask, loadAdminSnapshot } from '../lib/adminData'
@@ -116,7 +117,7 @@ const AdminDashboardPage = () => {
     setTaskRelatedUserId(upload.userId)
     setTaskRelatedDocId(upload.id)
     setTaskNotes(`Upload von ${upload.userEmail}`)
-    setTaskMessage('Upload in Task-Form uebernommen.')
+    setTaskMessage('Upload in Task-Form übernommen.')
   }
 
   const handleCreateTask = async (event: FormEvent<HTMLFormElement>) => {
@@ -148,6 +149,18 @@ const AdminDashboardPage = () => {
     setTaskNotes('')
     setTaskMessage('Task wurde erstellt.')
     await loadSnapshot()
+  }
+
+  if (loading && !snapshot) {
+    return (
+      <div className="page">
+        <LoadingTicker
+          className="page-loader"
+          prefix="Admin lädt"
+          words={['KPIs', 'Traffic', 'Uploads', 'Security', 'Aufgaben']}
+        />
+      </div>
+    )
   }
 
   return (
@@ -221,7 +234,11 @@ const AdminDashboardPage = () => {
           <div className="admin-header-actions">
             <button className="admin-chip" type="button" onClick={() => void loadSnapshot()}>
               <RefreshCw size={14} />
-              <span>{loading ? 'Lade...' : 'Refresh'}</span>
+              {loading ? (
+                <LoadingTicker variant="inline" prefix="Lade" words={['KPIs', 'Traffic', 'Uploads', 'Scores', 'Alerts']} />
+              ) : (
+                <span>Refresh</span>
+              )}
             </button>
             <button className="admin-chip" type="button">
               <Bell size={14} />
@@ -294,13 +311,13 @@ const AdminDashboardPage = () => {
               <span className="admin-pill">Founder Focus</span>
             </div>
             <p>
-              Lassen Sie Ihre Abschlussarbeit (Bachelor, Master, PhD) vollstaendig oder in Teilen blitzschnell auf hoechste
-              wissenschaftliche Standards pruefen.
+              Lassen Sie Ihre Abschlussarbeit (Bachelor, Master, PhD) vollständig oder in Teilen blitzschnell auf höchste
+              wissenschaftliche Standards prüfen.
             </p>
             <ul>
-              <li>Struktur, Inhalt, Methodik, Ergebnisse, Sprache, Zitationen, Originalitaet, Visuals, Ethik.</li>
+              <li>Struktur, Inhalt, Methodik, Ergebnisse, Sprache, Zitationen, Originalität, Visuals, Ethik.</li>
               <li>80% weniger Review-Zeit im Vergleich zu manueller Analyse.</li>
-              <li>+25-40% Notenpotenzial durch praezise Schwaechen- und Verbesserungsanalyse.</li>
+              <li>+25-40% Notenpotenzial durch präzise Schwächen- und Verbesserungsanalyse.</li>
             </ul>
           </article>
 
@@ -528,7 +545,7 @@ const AdminDashboardPage = () => {
                 onChange={(event) => setTaskRelatedDocId(event.target.value)}
               />
               <textarea
-                placeholder="Notizen / Naechste Schritte"
+                placeholder="Notizen / Nächste Schritte"
                 value={taskNotes}
                 onChange={(event) => setTaskNotes(event.target.value)}
               />

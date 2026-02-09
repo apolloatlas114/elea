@@ -268,7 +268,7 @@ const MyThesisPage = () => {
       { label: 'Methodik', value: clamp(Number((base - 0.4).toFixed(1)), 1, 10) },
       { label: 'Zitation', value: clamp(Number((base + 0.1).toFixed(1)), 1, 10) },
       { label: 'Sprache', value: clamp(Number((base + 0.3).toFixed(1)), 1, 10) },
-      { label: 'Originalitaet', value: clamp(Number((base - 0.2).toFixed(1)), 1, 10) },
+      { label: 'Originalität', value: clamp(Number((base - 0.2).toFixed(1)), 1, 10) },
     ]
   }, [eleaScorePercent])
 
@@ -356,17 +356,17 @@ const MyThesisPage = () => {
     const items: string[] = []
 
     if (!profile) {
-      items.push('Profil vollstaendig ausfuellen, damit dein Thesis-Plan korrekt startet.')
+      items.push('Profil vollständig ausfüllen, damit dein Thesis-Plan korrekt startet.')
       return items
     }
 
     const statusValue = Number(profile.status ?? '0')
-    if (statusValue < 50) items.push('Expose + Methodikteil als naechsten Sprint priorisieren.')
-    if (documents.length === 0) items.push('Erste Gliederung oder Draft hochladen fuer schnellere Score-Vorschau.')
+    if (statusValue < 50) items.push('Expose + Methodikteil als nächsten Sprint priorisieren.')
+    if (documents.length === 0) items.push('Erste Gliederung oder Draft hochladen für schnellere Score-Vorschau.')
     if (todosWeek < 2) items.push('Mindestens 2 konkrete Wochenaufgaben mit Datum planen.')
-    if (stress.value > 60) items.push('Stress ist erhoeht: 1 Coaching-Slot oder Fokusblock einplanen.')
+    if (stress.value > 60) items.push('Stress ist erhöht: 1 Coaching-Slot oder Fokusblock einplanen.')
     if (assessment?.recommendedPlan && plan === 'free' && assessment.recommendedPlan !== 'free') {
-      items.push('Empfohlenen Plan pruefen, um Feedback und PhD-Review zu aktivieren.')
+      items.push('Empfohlenen Plan prüfen, um Feedback und PhD-Review zu aktivieren.')
     }
     if (items.length === 0) items.push('Sehr gut: Fokus halten und jede Woche eine messbare Abgabe definieren.')
 
@@ -448,9 +448,9 @@ const MyThesisPage = () => {
   }, [docTypeStats, documents.length])
 
   const qualityHighlights = [
-    'Struktur, Inhalt, Methodik, Ergebnisse, Sprache, Zitationen, Originalitaet, Visuals, Ethik & mehr.',
+    'Struktur, Inhalt, Methodik, Ergebnisse, Sprache, Zitationen, Originalität, Visuals, Ethik & mehr.',
     '80% weniger Review-Zeit durch ultraschnelle Score-Auswertung.',
-    '+25-40% bessere Notenchance durch gezielte Schwaechen-Analyse.',
+    '+25-40% bessere Notenchance durch gezielte Schwächen-Analyse.',
   ]
 
   const viewItems: Array<{ id: ThesisView; label: string; icon: JSX.Element; meta: string }> = [
@@ -472,7 +472,7 @@ const MyThesisPage = () => {
         <div className="thesis-rail-head">
           <p className="thesis-kicker">ELEA Thesis</p>
           <h1>My Thesis</h1>
-          <p className="thesis-subline">Dein zentraler Arbeitsbereich fuer Fortschritt, Fokus und Abgabe.</p>
+          <p className="thesis-subline">Dein zentraler Arbeitsbereich für Fortschritt, Fokus und Abgabe.</p>
         </div>
 
         <nav className="thesis-rail-nav" aria-label="My Thesis Navigation">
@@ -524,7 +524,7 @@ const MyThesisPage = () => {
                   <h3>Alles Wichtige auf einen Blick</h3>
                 </div>
                 <button className="ghost" type="button" onClick={() => setActiveView('workbench')}>
-                  Workbench oeffnen
+                  Workbench öffnen
                 </button>
               </div>
 
@@ -532,7 +532,7 @@ const MyThesisPage = () => {
                 <div className="thesis-pro-kpi">
                   <span>Abgabe</span>
                   <strong>
-                    {deadlineDaysLeft === null ? 'Kein Datum' : deadlineDaysLeft < 0 ? `${Math.abs(deadlineDaysLeft)} Tage drueber` : `${deadlineDaysLeft} Tage`}
+                    {deadlineDaysLeft === null ? 'Kein Datum' : deadlineDaysLeft < 0 ? `${Math.abs(deadlineDaysLeft)} Tage drüber` : `${deadlineDaysLeft} Tage`}
                   </strong>
                   <small>{profile?.abgabedatum ? `Termin: ${profile.abgabedatum}` : 'Abgabedatum im Profil setzen'}</small>
                 </div>
@@ -540,7 +540,7 @@ const MyThesisPage = () => {
                   <span>Wochensprint</span>
                   <strong>{todosWeek} geplant</strong>
                   <small>
-                    Heute {todosToday} · {overdueTodos > 0 ? `${overdueTodos} ueberfaellig` : 'keine ueberfaelligen'}
+                    Heute {todosToday} · {overdueTodos > 0 ? `${overdueTodos} überfällig` : 'keine überfälligen'}
                   </small>
                 </div>
                 <div className="thesis-pro-kpi">
@@ -578,7 +578,7 @@ const MyThesisPage = () => {
                       </div>
                     ))}
                   </div>
-                  <svg className="thesis-sparkline" viewBox="0 0 320 102" role="img" aria-label="Produktivitaetsverlauf">
+                  <svg className="thesis-sparkline" viewBox="0 0 320 102" role="img" aria-label="Produktivitätsverlauf">
                     <path className="thesis-sparkline-axis" d="M 8 12 L 8 94 L 312 94" />
                     <path className="thesis-sparkline-path" d={sparklinePath} />
                   </svg>
@@ -630,7 +630,7 @@ const MyThesisPage = () => {
                 </div>
                 <p className="thesis-quality-copy">
                   <strong>PhD-Level Quality Score:</strong> Lassen Sie Ihre Abschlussarbeit (Bachelor, Master, PhD) -
-                  vollstaendig oder in Teilen - blitzschnell auf hoechste wissenschaftliche Standards pruefen.
+                  vollständig oder in Teilen - blitzschnell auf höchste wissenschaftliche Standards prüfen.
                 </p>
                 <ul className="thesis-pro-score-list">
                   {qualityHighlights.map((item) => (
@@ -665,8 +665,8 @@ const MyThesisPage = () => {
                 <div className="notititle">Stress {stress.value}/100</div>
                 <div className="notibody">
                   {stress.value > 60
-                    ? 'Dein Stress ist erhoeht. Plane einen Fokusblock oder Coaching-Slot ein.'
-                    : 'Stress stabil. Halte deinen Wochenrhythmus fuer gleichmaessigen Fortschritt.'}
+                    ? 'Dein Stress ist erhöht. Plane einen Fokusblock oder Coaching-Slot ein.'
+                    : 'Stress stabil. Halte deinen Wochenrhythmus für gleichmäßigen Fortschritt.'}
                 </div>
               </div>
               <div className="thesis-pro-mini-reco">
@@ -701,8 +701,8 @@ const MyThesisPage = () => {
               </div>
               <div className="thesis-pro-card-note">
                 {overdueTodos > 0
-                  ? `${overdueTodos} Aufgabe(n) sind ueberfaellig und sollten priorisiert werden.`
-                  : 'Keine ueberfaelligen Aufgaben. Dein Task-Rhythmus ist stabil.'}
+                  ? `${overdueTodos} Aufgabe(n) sind überfällig und sollten priorisiert werden.`
+                  : 'Keine überfälligen Aufgaben. Dein Task-Rhythmus ist stabil.'}
               </div>
             </article>
 
@@ -721,7 +721,7 @@ const MyThesisPage = () => {
                   <strong>{documents.length}</strong>
                 </div>
                 <div className="thesis-pro-stat-item">
-                  <span>Durch Elea geprueft</span>
+                  <span>Durch Elea geprüft</span>
                   <strong>{eleaReviewedDocs}</strong>
                 </div>
                 <div className="thesis-pro-stat-item">
@@ -731,8 +731,8 @@ const MyThesisPage = () => {
               </div>
               <div className="thesis-pro-card-note">
                 {qualityLocked
-                  ? 'Elea-Score Pruefung ist mit Basic/Pro aktivierbar.'
-                  : 'Neue Uploads fliessen automatisch in den Elea-Score ein.'}
+                  ? 'Elea-Score Prüfung ist mit Basic/Pro aktivierbar.'
+                  : 'Neue Uploads fließen automatisch in den Elea-Score ein.'}
               </div>
             </article>
 
@@ -755,7 +755,7 @@ const MyThesisPage = () => {
                   <strong>{notesUsedSections}/3</strong>
                 </div>
                 <div className="thesis-pro-stat-item">
-                  <span>Zuletzt geaendert</span>
+                  <span>Zuletzt geändert</span>
                   <strong>{notesTotalCount > 0 ? 'Aktiv' : 'Noch leer'}</strong>
                 </div>
               </div>
@@ -793,7 +793,7 @@ const MyThesisPage = () => {
                     <div className="upload-title">
                       <UploadCloud size={14} /> Dokumente hochladen
                     </div>
-                    <div className="upload-sub">PDF, DOC, DOCX - mehrere Dateien moeglich.</div>
+                    <div className="upload-sub">PDF, DOC, DOCX - mehrere Dateien möglich.</div>
                   </label>
                 </div>
 
@@ -837,7 +837,7 @@ const MyThesisPage = () => {
               </div>
 
               {filteredDocuments.length === 0 ? (
-                <div className="doc-empty thesis-mt-0">Keine Dokumente fuer diesen Filter gefunden.</div>
+                <div className="doc-empty thesis-mt-0">Keine Dokumente für diesen Filter gefunden.</div>
               ) : (
                 <div className="doc-list compact thesis-doc-list">
                   {filteredDocuments.map((doc) => (
@@ -865,7 +865,7 @@ const MyThesisPage = () => {
                 <h2>
                   <BarChart3 size={16} /> Dokument-Analytics
                 </h2>
-                <span>Uebersicht</span>
+                <span>Übersicht</span>
               </div>
               <div className="thesis-chart-card">
                 <h3>
@@ -895,7 +895,7 @@ const MyThesisPage = () => {
                   <CalendarDays size={16} /> Task Board
                 </h2>
                 <button className="primary todo-add" type="button" onClick={addTodo}>
-                  Aufgabe hinzufuegen
+                  Aufgabe hinzufügen
                 </button>
               </div>
 
@@ -903,7 +903,7 @@ const MyThesisPage = () => {
                 <span className="thesis-chip">Heute: {todosToday}</span>
                 <span className="thesis-chip">Diese Woche: {todosWeek}</span>
                 <span className={`thesis-chip ${overdueTodos > 0 ? 'warn' : 'ok'}`}>
-                  {overdueTodos > 0 ? `${overdueTodos} ueberfaellig` : 'Keine ueberfaelligen Aufgaben'}
+                  {overdueTodos > 0 ? `${overdueTodos} überfällig` : 'Keine überfälligen Aufgaben'}
                 </span>
               </div>
 
@@ -922,7 +922,7 @@ const MyThesisPage = () => {
                   className={todoView === 'overdue' ? 'active' : ''}
                   onClick={() => setTodoView('overdue')}
                 >
-                  Ueberfaellig
+                  Überfällig
                 </button>
               </div>
 
@@ -950,7 +950,7 @@ const MyThesisPage = () => {
                         <input
                           className="todo-input"
                           value={todo.detail}
-                          placeholder="Details oder naechster Schritt"
+                          placeholder="Details oder nächster Schritt"
                           onChange={(event) => updateTodo(todo.id, { detail: event.target.value })}
                         />
                       </div>
@@ -1011,8 +1011,8 @@ const MyThesisPage = () => {
                 <div className="thesis-quality-value">{qualityLocked ? '--' : `${eleaScoreValue}/10`}</div>
                 <p className="thesis-quality-copy">
                   <strong>PhD-Level Quality Score:</strong> Lassen Sie Ihre Abschlussarbeit (Bachelor, Master, PhD) -
-                  vollstaendig oder in Teilen - blitzschnell auf hoechste wissenschaftliche Standards pruefen. Jeder
-                  Bereich erhaelt Score (1-10), praezise Feedback und Optimierungstipps fuer Top-Noten.
+                  vollständig oder in Teilen - blitzschnell auf höchste wissenschaftliche Standards prüfen. Jeder
+                  Bereich erhält Score (1-10), präzise Feedback und Optimierungstipps für Top-Noten.
                 </p>
                 <div className="score-bar thesis-quality-bar">
                   <div className="score-fill" style={{ width: `${qualityLocked ? 0 : eleaScorePercent}%` }} />
@@ -1023,7 +1023,7 @@ const MyThesisPage = () => {
                 <div className="thesis-quality-block">
                   <h3>Abgedeckte Features</h3>
                   <p>
-                    Struktur, Inhalt, Methodik, Ergebnisse, Sprache, Zitationen, Originalitaet, Visuals, Ethik & mehr.
+                    Struktur, Inhalt, Methodik, Ergebnisse, Sprache, Zitationen, Originalität, Visuals, Ethik & mehr.
                   </p>
                 </div>
                 <div className="thesis-quality-block">
@@ -1034,15 +1034,15 @@ const MyThesisPage = () => {
                       manuellem Feedback).
                     </li>
                     <li>
-                      <strong>Erfolgsboost:</strong> +25-40% bessere Noten durch praezise Schwaechen-Analyse und Tipps
+                      <strong>Erfolgsboost:</strong> +25-40% bessere Noten durch präzise Schwächen-Analyse und Tipps
                       (basierend auf Rubriken).
                     </li>
                     <li>
-                      <strong>Sofort-Insights:</strong> Scores + personalisierte Verbesserungen fuer Fragmente oder
+                      <strong>Sofort-Insights:</strong> Scores + personalisierte Verbesserungen für Fragmente oder
                       Volltexte.
                     </li>
                     <li>
-                      <strong>Top-Qualitaet:</strong> PhD-aehnliche Bewertung hebt Sie von der Masse ab, ideal fuer
+                      <strong>Top-Qualität:</strong> PhD-ähnliche Bewertung hebt Sie von der Masse ab, ideal für
                       Abgabe.
                     </li>
                   </ul>
@@ -1117,7 +1117,7 @@ const MyThesisPage = () => {
                     id="notes-chapter"
                     value={notes.chapter}
                     onChange={(event) => setNotes((prev) => ({ ...prev, chapter: event.target.value }))}
-                    placeholder="Was ist das naechste konkrete Kapitelziel?"
+                    placeholder="Was ist das nächste konkrete Kapitelziel?"
                   />
                 </label>
                 <label className="thesis-note-box" htmlFor="notes-method">
@@ -1126,7 +1126,7 @@ const MyThesisPage = () => {
                     id="notes-method"
                     value={notes.method}
                     onChange={(event) => setNotes((prev) => ({ ...prev, method: event.target.value }))}
-                    placeholder="Welche Methode/Statistik muss als naechstes sauber sein?"
+                    placeholder="Welche Methode/Statistik muss als nächstes sauber sein?"
                   />
                 </label>
                 <label className="thesis-note-box" htmlFor="notes-writing">
@@ -1158,12 +1158,12 @@ const MyThesisPage = () => {
                   Als Aufgabe anlegen
                 </button>
                 <button className="ghost" type="button" onClick={() => navigate('/coaching')}>
-                  Coaching oeffnen
+                  Coaching öffnen
                 </button>
               </div>
               {qualityLocked && (
                 <p className="thesis-lock-note">
-                  <Lock size={12} /> Echter KI-Qualitaetscheck wird mit Basic oder Pro freigeschaltet.
+                  <Lock size={12} /> Echter KI-Qualitätscheck wird mit Basic oder Pro freigeschaltet.
                 </p>
               )}
             </article>

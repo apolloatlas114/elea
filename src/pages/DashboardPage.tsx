@@ -74,7 +74,7 @@ const assessmentQuestions: AssessmentQuestion[] = [
   },
   {
     id: 'method',
-    title: 'Methodik geklaert?',
+    title: 'Methodik geklärt?',
     options: [
       { id: 'method_clear', label: 'Ja, klar', support: 0 },
       { id: 'method_partial', label: 'Teilweise', support: 1 },
@@ -112,9 +112,9 @@ const buildAssessmentResult = (answers: Record<string, string>): AssessmentResul
 
   const recommendedPlan: Plan = score >= 8 ? 'pro' : score >= 4 ? 'basic' : 'free'
   const recommendationCopy: Record<Plan, string[]> = {
-    free: ['Starker Start im Selbstlernmodus', 'Struktur durch Videos + Checklisten', 'Upgrade jederzeit moeglich'],
-    basic: ['Mehr Struktur im Wochenrhythmus', 'Feedback spart Zeit bei Korrekturen', 'Support fuer offene Fragen'],
-    pro: ['Maximale Begleitung bis zur Abgabe', 'Intensives Feedback senkt Risiko', 'Prioritaet im Support'],
+    free: ['Starker Start im Selbstlernmodus', 'Struktur durch Videos + Checklisten', 'Upgrade jederzeit möglich'],
+    basic: ['Mehr Struktur im Wochenrhythmus', 'Feedback spart Zeit bei Korrekturen', 'Support für offene Fragen'],
+    pro: ['Maximale Begleitung bis zur Abgabe', 'Intensives Feedback senkt Risiko', 'Priorität im Support'],
   }
 
   return {
@@ -285,16 +285,16 @@ const DashboardPage = () => {
 
   const bookingAvailability = useMemo(() => {
     if (!bookingDate) {
-      return { times: [], message: 'Bitte ein Datum waehlen.', valid: false }
+      return { times: [], message: 'Bitte ein Datum wählen.', valid: false }
     }
     if (isHoliday(bookingDate)) {
-      return { times: [], message: 'Feiertag - keine Termine verfuegbar.', valid: false }
+      return { times: [], message: 'Feiertag - keine Termine verfügbar.', valid: false }
     }
     if (!isWeekday(bookingDate)) {
       return { times: [], message: 'Nur Mo-Fr buchbar.', valid: false }
     }
     if (bookingBlackouts.includes(bookingDate)) {
-      return { times: [], message: 'An diesem Tag sind wir nicht verfuegbar.', valid: false }
+      return { times: [], message: 'An diesem Tag sind wir nicht verfügbar.', valid: false }
     }
     const date = new Date(`${bookingDate}T00:00:00`)
     const weekday = date.getDay()
@@ -454,7 +454,7 @@ const DashboardPage = () => {
   const showCommitment = profile !== null && !commitmentSeen && assessment !== null
   const recommendedPlan = assessment?.recommendedPlan ?? 'basic'
   const recommendationReasons =
-    assessment?.reasons ?? ['Bitte den Einstufungstest ausfuellen, damit wir deinen Plan empfehlen koennen.']
+    assessment?.reasons ?? ['Bitte den Einstufungstest ausfüllen, damit wir deinen Plan empfehlen können.']
   const latestBooking = bookingLog[bookingLog.length - 1]
   const bookingLabel = latestBooking ? `${latestBooking.date} ${latestBooking.time}` : null
 
@@ -585,7 +585,7 @@ const DashboardPage = () => {
       }
     }
     const title = assigned.title.trim().length > 0 ? assigned.title : 'Aufgabe ohne Titel'
-    let sub = assigned.detail.trim().length > 0 ? assigned.detail : 'Details hinzufuegen'
+    let sub = assigned.detail.trim().length > 0 ? assigned.detail : 'Details hinzufügen'
     const remaining = Math.max(todosForDay.length - TIME_SLOTS.length, 0)
     if (slotIndex === TIME_SLOTS.length - 1 && remaining > 0) {
       sub = `${sub} - +${remaining} weitere`
@@ -613,7 +613,7 @@ const DashboardPage = () => {
     if (plan === 'free') {
       setSupportNotice({
         type: 'warn',
-        text: 'Waehle min. BASIC Plan aus fuer super schnellen Direkt-Betreuungssupport.',
+        text: 'Wähle min. BASIC Plan aus für super schnellen Direkt-Betreuungssupport.',
       })
       return
     }
@@ -761,7 +761,7 @@ const DashboardPage = () => {
             <div className={`hero-bottom ${hasStressWarning ? 'with-warning' : ''}`}>
               {hasStressWarning && (
                 <div className="stress-warning compact hero-warning">
-                  Dein Stress ist erhoeht. Wir empfehlen persoenliche Betreuung.
+                  Dein Stress ist erhöht. Wir empfehlen persönliche Betreuung.
                 </div>
               )}
               <div className={`hero-actions ${hasStressWarning ? 'with-warning' : ''}`}>
@@ -802,7 +802,7 @@ const DashboardPage = () => {
                   </div>
                 </div>
                 {plan === 'free' && (
-                  <div className="support-plan-hint">Support-Chat ist ab BASIC und PRO direkt verfuegbar.</div>
+                  <div className="support-plan-hint">Support-Chat ist ab BASIC und PRO direkt verfügbar.</div>
                 )}
               </div>
               <div className="plan-recommend-card equal-card">
@@ -863,7 +863,7 @@ const DashboardPage = () => {
                     <span className="plan-call-strong">1zu1 Call</span>{' '}
                     <span className="plan-call-name">Dr. Anna Horrer</span>
                   </div>
-                  {bookingLabel && <div className="plan-sub">Naechster Termin: {bookingLabel}</div>}
+                  {bookingLabel && <div className="plan-sub">Nächster Termin: {bookingLabel}</div>}
                 </div>
               </div>
               <button className="cssbuttons-io plan-book" type="button" onClick={handleBookingToggle}>
@@ -924,7 +924,7 @@ const DashboardPage = () => {
                   onClick={confirmBooking}
                   disabled={!bookingAvailability.valid}
                 >
-                  Bestaetigen
+                  Bestätigen
                 </button>
               </div>
             )}
@@ -1068,7 +1068,7 @@ const AssessmentModal = ({ onComplete }: { onComplete: (result: AssessmentResult
     <div className="modal-backdrop">
       <div className="modal assessment-modal">
         <h2>Einstufungstest</h2>
-        <p>Beantworte die Fragen, damit wir deinen Plan empfehlen koennen.</p>
+        <p>Beantworte die Fragen, damit wir deinen Plan empfehlen können.</p>
         <div className="assessment-grid">
           {assessmentQuestions.map((question) => (
             <div key={question.id} className="question-card">
