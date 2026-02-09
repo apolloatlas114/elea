@@ -8,7 +8,7 @@ type AuthState = {
   user: AuthUser | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string) => Promise<{ needsEmailConfirmation: boolean; email: string }>
   logout: () => Promise<void>
 }
 
@@ -45,14 +45,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [])
 
   const register = useCallback(async (email: string, password: string) => {
-    const next = await signUp(email, password)
-    setUser(next)
+    const registration = await signUp(email, password)
+    if (registration.user) {
+      setUser(registration.user)
+    } else {
+      setUser(null)
+    }
+
     void trackActivityEvent({
       eventType: 'register_success',
-      userId: next.id,
-      email: next.email,
+      userId: registration.user?.id ?? null,
+      email: registration.email,
       pagePath: '/auth',
+      metadata: {
+        confirmationRequired: registration.needsEmailConfirmation,
+      },
     })
+
+    return {
+      needsEmailConfirmation: registration.needsEmailConfirmation,
+      email: registration.email,
+    }
   }, [])
 
   const logout = useCallback(async () => {

@@ -66,6 +66,22 @@ export const savePlan = async (userId: string, plan: Plan) => {
     .upsert({ user_id: userId, plan, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
 }
 
+export const hasPaidCoachingPlan = async (userId: string, plan: Plan): Promise<boolean> => {
+  if (plan === 'free') return false
+  if (!isEnabled()) return false
+
+  const { data, error } = await supabase!
+    .from('finance_events')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'paid')
+    .eq('plan', plan)
+    .limit(1)
+
+  if (error) return false
+  return (data?.length ?? 0) > 0
+}
+
 export const loadAssessment = async (userId: string): Promise<AssessmentResult | null> => {
   if (!isEnabled()) return null
   const { data, error } = await supabase!

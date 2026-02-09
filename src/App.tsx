@@ -240,7 +240,7 @@ const AppLayout = () => {
     <div className={`app ${isThesisRoute ? 'app--thesis-fit' : ''}`}>
       <header className={`topbar ${menuOpen ? 'menu-open' : ''}`}>
         <div className="brand">
-          <img className="brand-logo" src="/elealogo.png" alt="ELEA" />
+          <img className="brand-logo" src="/elealogoneu.png" alt="ELEA" />
         </div>
 
         <nav id="primary-nav" className={`nav ${menuOpen ? 'open' : ''}`}>
@@ -334,7 +334,7 @@ const AppLayout = () => {
                 to="/payments"
                 onClick={() => setUserMenuOpen(false)}
               >
-                Payments
+                Pläne
               </NavLink>
             </div>
           </div>

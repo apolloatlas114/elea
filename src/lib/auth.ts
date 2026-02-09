@@ -5,6 +5,12 @@ export type AuthUser = {
   email: string
 }
 
+export type RegisterResult = {
+  user: AuthUser | null
+  email: string
+  needsEmailConfirmation: boolean
+}
+
 const LOCAL_USER_KEY = 'elea_local_user'
 
 const createLocalUser = (email: string): AuthUser => {
@@ -29,18 +35,35 @@ export const getCurrentUser = async (): Promise<AuthUser | null> => {
   }
 }
 
-export const signUp = async (email: string, password: string): Promise<AuthUser> => {
+export const signUp = async (email: string, password: string): Promise<RegisterResult> => {
   if (supabaseEnabled && supabase) {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error || !data.user || !data.user.email) {
       throw new Error(error?.message ?? 'Signup fehlgeschlagen')
     }
-    return { id: data.user.id, email: data.user.email }
+
+    if (!data.session) {
+      return {
+        user: null,
+        email: data.user.email,
+        needsEmailConfirmation: true,
+      }
+    }
+
+    return {
+      user: { id: data.user.id, email: data.user.email },
+      email: data.user.email,
+      needsEmailConfirmation: false,
+    }
   }
 
   const user = createLocalUser(email)
   localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user))
-  return user
+  return {
+    user,
+    email: user.email,
+    needsEmailConfirmation: false,
+  }
 }
 
 export const signIn = async (email: string, password: string): Promise<AuthUser> => {

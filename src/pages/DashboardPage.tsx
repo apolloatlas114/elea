@@ -16,6 +16,7 @@ import type {
 import { STORAGE_KEYS, TIME_SLOTS, formatCountdown, normalizeTodos, parseJson, todayIso } from '../lib/storage'
 import {
   appendDeadlineLog,
+  hasPaidCoachingPlan,
   loadAssessment,
   loadBookings,
   loadPlan,
@@ -266,6 +267,8 @@ const DashboardPage = () => {
   const [bookingDate, setBookingDate] = useState(todayIso())
   const [bookingTime, setBookingTime] = useState('11:00')
   const [groupCallFixed, setGroupCallFixed] = useState(false)
+  const [coachingPaid, setCoachingPaid] = useState(false)
+  const [coachingGateNoticeOpen, setCoachingGateNoticeOpen] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0)
   const [activeDate, setActiveDate] = useState(() => todayIso())
   const [supportDraft, setSupportDraft] = useState('')
@@ -277,6 +280,8 @@ const DashboardPage = () => {
   const { user } = useAuth()
   const stress = useStress(user?.id)
   const deadlineCountdown = useCountdown(profile?.abgabedatum ?? todayIso())
+  const coachingPlanEligible = plan === 'basic' || plan === 'pro'
+  const hasCoachingAccess = coachingPlanEligible && coachingPaid
 
   const bookingAvailability = useMemo(() => {
     if (!bookingDate) {
@@ -401,6 +406,12 @@ const DashboardPage = () => {
   }, [supportNotice])
 
   useEffect(() => {
+    if (!coachingGateNoticeOpen) return
+    const timer = window.setTimeout(() => setCoachingGateNoticeOpen(false), 4200)
+    return () => window.clearTimeout(timer)
+  }, [coachingGateNoticeOpen])
+
+  useEffect(() => {
     if (!profile?.abgabedatum) return
     const log = parseJson<DeadlineLogEntry[]>(localStorage.getItem(STORAGE_KEYS.deadlineLog), [])
     const last = log[log.length - 1]
@@ -415,6 +426,29 @@ const DashboardPage = () => {
     }
   }, [profile?.abgabedatum, user])
 
+  useEffect(() => {
+    let active = true
+    if (!user || !coachingPlanEligible) {
+      setCoachingPaid(false)
+      return () => {}
+    }
+
+    hasPaidCoachingPlan(user.id, plan).then((paid) => {
+      if (!active) return
+      setCoachingPaid(paid)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [coachingPlanEligible, plan, user?.id])
+
+  useEffect(() => {
+    if (hasCoachingAccess) return
+    setBookingOpen(false)
+    setGroupCallFixed(false)
+  }, [hasCoachingAccess])
+
   const showOnboarding = profile === null
   const showAssessment = profile !== null && assessment === null
   const showCommitment = profile !== null && !commitmentSeen && assessment !== null
@@ -425,6 +459,10 @@ const DashboardPage = () => {
   const bookingLabel = latestBooking ? `${latestBooking.date} ${latestBooking.time}` : null
 
   const confirmBooking = () => {
+    if (!hasCoachingAccess) {
+      setCoachingGateNoticeOpen(true)
+      return
+    }
     if (!bookingDate || !bookingTime) return
     if (!bookingAvailability.valid) return
     if (!bookingAvailability.times.includes(bookingTime)) return
@@ -584,6 +622,26 @@ const DashboardPage = () => {
       text: 'Nachricht gesendet. Unser Team meldet sich schnell bei dir.',
     })
     setSupportDraft('')
+  }
+
+  const showCoachingGateNotice = () => {
+    setCoachingGateNoticeOpen(true)
+  }
+
+  const handleGroupCallToggle = (checked: boolean) => {
+    if (!hasCoachingAccess) {
+      showCoachingGateNotice()
+      return
+    }
+    setGroupCallFixed(checked)
+  }
+
+  const handleBookingToggle = () => {
+    if (!hasCoachingAccess) {
+      showCoachingGateNotice()
+      return
+    }
+    setBookingOpen((prev) => !prev)
   }
 
   return (
@@ -789,7 +847,7 @@ const DashboardPage = () => {
                     id="group-call-fix-dashboard"
                     type="checkbox"
                     checked={groupCallFixed}
-                    onChange={(event) => setGroupCallFixed(event.target.checked)}
+                    onChange={(event) => handleGroupCallToggle(event.target.checked)}
                   />
                   <label htmlFor="group-call-fix-dashboard" aria-label="Gruppen Call fix" />
                 </div>
@@ -808,10 +866,23 @@ const DashboardPage = () => {
                   {bookingLabel && <div className="plan-sub">Naechster Termin: {bookingLabel}</div>}
                 </div>
               </div>
-              <button className="cssbuttons-io plan-book" type="button" onClick={() => setBookingOpen((prev) => !prev)}>
+              <button className="cssbuttons-io plan-book" type="button" onClick={handleBookingToggle}>
                 <span>Buchen</span>
               </button>
             </div>
+            {coachingGateNoticeOpen && (
+              <div className="plan-gate-tooltip" role="note">
+                <h4>Betreuung nur mit aktivem BASIC/PRO</h4>
+                <p>Du brauchst einen bezahlten BASIC oder PRO Plan, um am Gruppen-Call und an 1zu1 Buchungen teilzunehmen.</p>
+                <div className="referral-cta">
+                  <span aria-hidden="true">{'->'}</span>
+                  <button className="plan-gate-link" type="button" onClick={() => navigate('/payments')}>
+                    Plan aktivieren
+                  </button>
+                </div>
+                <span className="plan-gate-tip" aria-hidden="true" />
+              </div>
+            )}
             {bookingOpen && (
               <div className="booking-popover">
                 <div className="booking-grid">

@@ -12,9 +12,9 @@ export const startCheckout = (product: CheckoutProduct) => {
 
   const amountByPlan: Record<CheckoutProduct, number> = {
     free: 0,
-    basic: 9900,
-    pro: 19900,
-    lektorat: 29900,
+    basic: 59000,
+    pro: 129000,
+    lektorat: 75000,
   }
 
   if (product !== 'free') {
