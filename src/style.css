@@ -1626,7 +1626,7 @@ select {
 
 .checkbox-wrapper-5 .check label::before,
 .checkbox-wrapper-5 .check label::after {
-  content: 'Â· Â·';
+  content: '\00B7 \00B7';
   position: absolute;
   overflow: hidden;
   left: calc(0.15 * var(--size));
@@ -1643,7 +1643,7 @@ select {
 }
 
 .checkbox-wrapper-5 .check label::after {
-  content: 'â—';
+  content: '\25CF';
   top: calc(0.65 * var(--size));
   left: calc(0.2 * var(--size));
   height: calc(0.1 * var(--size));

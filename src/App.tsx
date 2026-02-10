@@ -129,13 +129,13 @@ const AppLayout = () => {
       if (!active) return
 
       if (claim.status === 'claimed') {
-        setReferralFeedback('Empfehlung verknÃ¼pft. 10% Rabatt werden vor dem Checkout vorgemerkt.')
+        setReferralFeedback('Empfehlung verknüpft. 10% Rabatt werden vor dem Checkout vorgemerkt.')
       } else if (claim.status === 'already_claimed') {
-        setReferralFeedback('Referral ist bereits mit deinem Account verknÃ¼pft.')
+        setReferralFeedback('Referral ist bereits mit deinem Account verknüpft.')
       } else if (claim.status === 'self_referral') {
-        setReferralFeedback('Eigene Referral-Links kÃ¶nnen nicht selbst eingelÃ¶st werden.')
+        setReferralFeedback('Eigene Referral-Links können nicht selbst eingelöst werden.')
       } else if (claim.status === 'invalid_code') {
-        setReferralFeedback('Referral-Code konnte nicht verknÃ¼pft werden.')
+        setReferralFeedback('Referral-Code konnte nicht verknüpft werden.')
       }
     }
 
@@ -356,7 +356,7 @@ const AppLayout = () => {
             type="button"
             aria-expanded={menuOpen}
             aria-controls="primary-nav"
-            aria-label={menuOpen ? 'Navigation schlieÃŸen' : 'Navigation Ã¶ffnen'}
+            aria-label={menuOpen ? 'Navigation schließen' : 'Navigation öffnen'}
             onClick={() => {
               setMenuOpen((prev) => !prev)
               setUserMenuOpen(false)
@@ -384,9 +384,9 @@ const AppLayout = () => {
               aria-label="Mental Health speichern"
               title="Mental Health speichern"
             >
-              ðŸ’¾
+              💾
             </button>
-            <span className={`stress-save-ok ${stressSaved ? 'show' : ''}`}>âœ“</span>
+            <span className={`stress-save-ok ${stressSaved ? 'show' : ''}`}>✓</span>
             {!stress.canSave && <span className="limit-note">{stress.dailyLimit}/Tag erreicht</span>}
           </div>
 
@@ -403,7 +403,7 @@ const AppLayout = () => {
             <button
               className="avatar-toggle"
               type="button"
-              aria-label="User-MenÃ¼"
+              aria-label="User-Menü"
               aria-expanded={userMenuOpen}
               onClick={() => setUserMenuOpen((prev) => !prev)}
             >
@@ -422,7 +422,7 @@ const AppLayout = () => {
                 to="/payments"
                 onClick={() => setUserMenuOpen(false)}
               >
-                PlÃ¤ne
+                Pläne
               </NavLink>
             </div>
           </div>
@@ -430,7 +430,7 @@ const AppLayout = () => {
       </header>
 
       {menuOpen && (
-        <button className="nav-backdrop" type="button" aria-label="MenÃ¼ schlieÃŸen" onClick={() => setMenuOpen(false)} />
+        <button className="nav-backdrop" type="button" aria-label="Menü schließen" onClick={() => setMenuOpen(false)} />
       )}
 
       <Outlet />
@@ -444,7 +444,7 @@ const AppLayout = () => {
         </button>
 
         <div className="referral-wrap">
-          <button className="referral-button" type="button" aria-label="10 Prozent Rabatt">
+          <button className="referral-button" type="button" aria-label="10 Prozent Rabatt" onClick={() => void handleReferralShare()}>
             <span className="referral-button-glow" aria-hidden="true" />
             <span className="referral-label">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -491,7 +491,7 @@ const ProtectedRoute = () => {
         <LoadingTicker
           className="page-loader"
           prefix="Lade"
-          words={['Session', 'ZugÃ¤nge', 'Sicherheit', 'Profil', 'Dashboard']}
+          words={['Session', 'Zugänge', 'Sicherheit', 'Profil', 'Dashboard']}
         />
       </div>
     )
