@@ -8032,6 +8032,20 @@ select {
   gap: 7px;
 }
 
+.auth-v0-field-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #2e3a43;
+}
+
+.auth-v0-field-checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: #1f7a73;
+}
+
 .auth-v0-field > span,
 .auth-v0-password-row > span {
   font-size: 13px;

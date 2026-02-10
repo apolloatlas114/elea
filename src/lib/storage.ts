@@ -113,6 +113,7 @@ export const STORAGE_KEYS = {
   thesisChecklist: 'elea_thesis_checklist',
   thesisNotes: 'elea_thesis_notes',
   lastUserId: 'elea_last_user_id',
+  rememberedEmail: 'elea_remembered_email',
 }
 
 export const USER_LOCAL_KEYS = [

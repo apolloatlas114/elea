@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import LoadingTicker from '../components/LoadingTicker'
 import { useAuth } from '../context/AuthContext'
 import { captureReferralCodeFromSearch, claimPendingReferral, getPendingReferralCode, type ReferralClaimResult } from '../lib/referrals'
+import { STORAGE_KEYS } from '../lib/storage'
 
 const AuthPage = () => {
   const { login, register } = useAuth()
@@ -15,6 +16,7 @@ const AuthPage = () => {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [rememberUser, setRememberUser] = useState(false)
   const [referralNotice, setReferralNotice] = useState<string | null>(null)
   const [registrationPendingEmail, setRegistrationPendingEmail] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -25,6 +27,14 @@ const AuthPage = () => {
     if (!pending) return
     setReferralNotice(`Einladungs-Code ${pending} erkannt. Der 10%-Vorteil wird nach deinem Login vorgemerkt.`)
   }, [location.search])
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.rememberedEmail)
+    if (saved) {
+      setEmail(saved)
+      setRememberUser(true)
+    }
+  }, [])
 
   const applyClaimNotice = (result: ReferralClaimResult) => {
     if (result.status === 'claimed') {
@@ -51,6 +61,11 @@ const AuthPage = () => {
       const currentUser = await login(email, password)
       const claimResult = await claimPendingReferral(currentUser.id)
       applyClaimNotice(claimResult)
+      if (rememberUser) {
+        localStorage.setItem(STORAGE_KEYS.rememberedEmail, email)
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.rememberedEmail)
+      }
       navigate('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login fehlgeschlagen')
@@ -223,6 +238,15 @@ const AuthPage = () => {
                     )}
                   </button>
                 </div>
+              </label>
+
+              <label className="auth-v0-field auth-v0-field-checkbox">
+                <input
+                  type="checkbox"
+                  checked={rememberUser}
+                  onChange={(event) => setRememberUser(event.target.checked)}
+                />
+                <span>Benutzer auf diesem Gerät merken</span>
               </label>
 
               {error && <div className="auth-v0-error">{error}</div>}
