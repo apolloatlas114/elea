@@ -106,6 +106,48 @@ export type ThesisNote = {
   updatedAt: string
 }
 
+export type StudyMCQ = {
+  question: string
+  options: string[]
+  correct: number
+  explanation?: string
+}
+
+export type StudyQuiz = {
+  easy: StudyMCQ[]
+  medium: StudyMCQ[]
+  hard: StudyMCQ[]
+}
+
+export type StudyTutorSection = {
+  heading: string
+  bullets: string[]
+  definitions: string[]
+  examples: string[]
+  questions: string[]
+}
+
+export type StudyTutorDoc = {
+  title: string
+  intro?: string
+  keyTakeaways?: string[]
+  sections: StudyTutorSection[]
+}
+
+export type StudyMaterial = {
+  id: string
+  name: string
+  size: number
+  pageCount: number
+  uploadedAt: string
+  status: 'processing' | 'ready' | 'error'
+  error?: string
+  tutor?: StudyTutorDoc
+  quiz?: StudyQuiz
+  createdAt: string
+  updatedAt: string
+}
+
 
 export type TimeSlot = {
   id: string
@@ -138,6 +180,7 @@ export const STORAGE_KEYS = {
   thesisDocuments: 'elea_thesis_documents',
   thesisChecklist: 'elea_thesis_checklist',
   thesisNotes: 'elea_thesis_notes',
+  studyMaterials: 'elea_study_materials',
   lastUserId: 'elea_last_user_id',
   rememberedEmail: 'elea_remembered_email',
 }
@@ -162,6 +205,7 @@ export const USER_LOCAL_KEYS = [
   STORAGE_KEYS.thesisDocuments,
   STORAGE_KEYS.thesisChecklist,
   STORAGE_KEYS.thesisNotes,
+  STORAGE_KEYS.studyMaterials,
 ]
 
 export const clearUserLocalState = () => {
@@ -304,6 +348,121 @@ export const mergeThesisNotes = (localNotes: ThesisNote[], remoteNotes: ThesisNo
     const bTs = parseTimestamp(b.updatedAt || b.createdAt)
     return bTs - aTs
   })
+}
+
+const normalizeStringArray = (value: unknown) =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+
+const normalizeMcqArray = (value: unknown): StudyMCQ[] => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((raw): StudyMCQ | null => {
+      const row = raw as Record<string, unknown>
+      const question = typeof row?.question === 'string' ? row.question.trim() : ''
+      const options = normalizeStringArray(row?.options).slice(0, 6)
+      const correct = typeof row?.correct === 'number' ? row.correct : Number(row?.correct)
+      const explanation = typeof row?.explanation === 'string' ? row.explanation.trim() : ''
+      if (!question || options.length < 2) return null
+      const fallbackIndex = 0
+      const rawIndex = Number.isFinite(correct) ? Math.trunc(correct) : fallbackIndex
+      const correctIndex = Math.min(Math.max(rawIndex, 0), Math.max(options.length - 1, 0))
+      const base: StudyMCQ = { question, options, correct: correctIndex }
+      if (explanation) base.explanation = explanation
+      return base
+    })
+    .filter((item): item is StudyMCQ => item !== null)
+}
+
+export const normalizeStudyMaterials = (value: unknown): StudyMaterial[] => {
+  const now = new Date().toISOString()
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((item, index): StudyMaterial | null => {
+      const raw = item as Record<string, unknown>
+      const id =
+        typeof raw?.id === 'string' && raw.id.trim().length > 0 ? raw.id : `study-${Date.now()}-${index}`
+      const name = typeof raw?.name === 'string' ? raw.name.trim() : ''
+      const size = typeof raw?.size === 'number' ? raw.size : Number(raw?.size ?? 0)
+      const pageCount = typeof raw?.pageCount === 'number' ? raw.pageCount : Number(raw?.pageCount ?? 0)
+      const uploadedAt = typeof raw?.uploadedAt === 'string' && raw.uploadedAt ? raw.uploadedAt : now
+      const createdAt = typeof raw?.createdAt === 'string' && raw.createdAt ? raw.createdAt : uploadedAt
+      const updatedAt = typeof raw?.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : createdAt
+      const status = raw?.status === 'ready' || raw?.status === 'processing' || raw?.status === 'error' ? raw.status : 'ready'
+      const error = typeof raw?.error === 'string' ? raw.error : undefined
+
+      const tutorRaw = raw?.tutor as Record<string, unknown> | undefined
+      const tutor =
+        tutorRaw && typeof tutorRaw === 'object'
+          ? ({
+              title: typeof tutorRaw.title === 'string' ? tutorRaw.title : name || 'Lern-Dokument',
+              intro: typeof tutorRaw.intro === 'string' ? tutorRaw.intro : undefined,
+              keyTakeaways: normalizeStringArray(tutorRaw.keyTakeaways),
+              sections: Array.isArray(tutorRaw.sections)
+                ? tutorRaw.sections
+                    .map((s) => {
+                      const sec = s as Record<string, unknown>
+                      const heading = typeof sec?.heading === 'string' ? sec.heading.trim() : ''
+                      if (!heading) return null
+                      return {
+                        heading,
+                        bullets: normalizeStringArray(sec?.bullets),
+                        definitions: normalizeStringArray(sec?.definitions),
+                        examples: normalizeStringArray(sec?.examples),
+                        questions: normalizeStringArray(sec?.questions),
+                      } satisfies StudyTutorSection
+                    })
+                    .filter((s): s is StudyTutorSection => Boolean(s))
+                : [],
+            } satisfies StudyTutorDoc)
+          : undefined
+
+      const quizRaw = raw?.quiz as Record<string, unknown> | undefined
+      const quiz =
+        quizRaw && typeof quizRaw === 'object'
+          ? ({
+              easy: normalizeMcqArray(quizRaw.easy),
+              medium: normalizeMcqArray(quizRaw.medium),
+              hard: normalizeMcqArray(quizRaw.hard),
+            } satisfies StudyQuiz)
+          : undefined
+
+      if (!name) return null
+      const result: StudyMaterial = {
+        id,
+        name,
+        size: Number.isFinite(size) ? size : 0,
+        pageCount: Number.isFinite(pageCount) ? pageCount : 0,
+        uploadedAt,
+        status,
+        ...(error ? { error } : {}),
+        tutor,
+        quiz,
+        createdAt,
+        updatedAt,
+      }
+      return result
+    })
+    .filter((item): item is StudyMaterial => item !== null)
+    .sort((a, b) => parseTimestamp(b.updatedAt) - parseTimestamp(a.updatedAt))
+}
+
+export const mergeStudyMaterials = (localItems: StudyMaterial[], remoteItems: StudyMaterial[]) => {
+  const map = new Map<string, StudyMaterial>()
+  localItems.forEach((item) => map.set(item.id, item))
+  remoteItems.forEach((item) => {
+    const existing = map.get(item.id)
+    if (!existing) {
+      map.set(item.id, item)
+      return
+    }
+    const existingTs = parseTimestamp(existing.updatedAt || existing.createdAt)
+    const incomingTs = parseTimestamp(item.updatedAt || item.createdAt)
+    if (incomingTs >= existingTs) {
+      map.set(item.id, item)
+    }
+  })
+  return Array.from(map.values()).sort((a, b) => parseTimestamp(b.updatedAt || b.createdAt) - parseTimestamp(a.updatedAt || a.createdAt))
 }
 
 export const parseDeadlineDate = (value?: string | null) => {

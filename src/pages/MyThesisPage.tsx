@@ -6,6 +6,7 @@
   FileText,
   Filter,
   FolderOpen,
+  GraduationCap,
   LayoutDashboard,
   ListChecks,
   NotepadText,
@@ -29,13 +30,27 @@ import {
   loadThesisChecklist,
   loadThesisDocuments,
   loadTodos,
+  loadStudyMaterials,
   replaceThesisNotes,
   replaceThesisChecklist,
   replaceThesisDocuments,
   replaceTodos,
+  replaceStudyMaterials,
 } from '../lib/supabaseData'
-import { STORAGE_KEYS, mergeThesisNotes, normalizeThesisNotes, normalizeTodos, parseDeadlineDate, parseJson, todayIso } from '../lib/storage'
-import type { AssessmentResult, Plan, ThesisChecklistItem, ThesisDocument, ThesisNote, TodoItem } from '../lib/storage'
+import { groqChatJson } from '../lib/groq'
+import { extractPdfText } from '../lib/pdf'
+import {
+  STORAGE_KEYS,
+  mergeStudyMaterials,
+  mergeThesisNotes,
+  normalizeStudyMaterials,
+  normalizeThesisNotes,
+  normalizeTodos,
+  parseDeadlineDate,
+  parseJson,
+  todayIso,
+} from '../lib/storage'
+import type { AssessmentResult, Plan, StudyMaterial, StudyQuiz, StudyTutorDoc, ThesisChecklistItem, ThesisDocument, ThesisNote, TodoItem } from '../lib/storage'
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 B'
@@ -86,7 +101,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 type DocFilter = 'all' | 'pdf' | 'doc' | 'docx'
 type TodoView = 'all' | 'today' | 'week' | 'overdue'
-type ThesisView = 'overview' | 'documents' | 'tasks' | 'quality' | 'workbench'
+type ThesisView = 'overview' | 'documents' | 'tasks' | 'quality' | 'study' | 'workbench'
 type TodoDraft = {
   title: string
   detail: string
@@ -121,6 +136,9 @@ const MyThesisPage = () => {
   const [notes, setNotes] = useState<ThesisNote[]>(() =>
     normalizeThesisNotes(parseJson(localStorage.getItem(STORAGE_KEYS.thesisNotes), []))
   )
+  const [studyMaterials, setStudyMaterials] = useState<StudyMaterial[]>(() =>
+    normalizeStudyMaterials(parseJson(localStorage.getItem(STORAGE_KEYS.studyMaterials), []))
+  )
   const [docQuery, setDocQuery] = useState('')
   const [docFilter, setDocFilter] = useState<DocFilter>('all')
   const [todoView, setTodoView] = useState<TodoView>('all')
@@ -146,12 +164,23 @@ const MyThesisPage = () => {
   }))
   const [synced, setSynced] = useState(false)
   const noteDocUploadRef = useRef<HTMLInputElement | null>(null)
+  const studyUploadRef = useRef<HTMLInputElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const mediaChunksRef = useRef<Blob[]>([])
   const recordingTimeoutRef = useRef<number | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [studyError, setStudyError] = useState('')
+  const [studyActiveId, setStudyActiveId] = useState<string>('')
+  const [studyActiveTab, setStudyActiveTab] = useState<'learn' | 'test' | 'save'>('learn')
+  const [studyBusy, setStudyBusy] = useState(false)
+  const [studyProgress, setStudyProgress] = useState<{ label: string; percent: number } | null>(null)
+  const [studyQuizLevel, setStudyQuizLevel] = useState<'easy' | 'medium' | 'hard'>('medium')
+  const [studyQuizAnswers, setStudyQuizAnswers] = useState<Record<number, number>>({})
+  const [studyQuizDone, setStudyQuizDone] = useState(false)
+  const [studyQuizStarted, setStudyQuizStarted] = useState(false)
+  const [studyQuizSecondsLeft, setStudyQuizSecondsLeft] = useState(0)
 
   const { user } = useAuth()
   const profile = useStoredProfile()
@@ -190,14 +219,27 @@ const MyThesisPage = () => {
   }, [notes, synced, user])
 
   useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.studyMaterials, JSON.stringify(studyMaterials))
+    if (!synced || !user) return
+    replaceStudyMaterials(user.id, studyMaterials).catch((error) => {
+      console.error('Study-Materialien speichern fehlgeschlagen', error)
+    })
+  }, [studyMaterials, synced, user])
+
+  useEffect(() => {
     let active = true
     if (!user) {
       setSynced(true)
       return () => {}
     }
 
-    Promise.all([loadTodos(user.id), loadThesisDocuments(user.id), loadThesisChecklist(user.id), loadThesisNotes(user.id)]).then(
-      ([remoteTodos, remoteDocs, remoteChecklist, remoteNotes]) => {
+    Promise.all([
+      loadTodos(user.id),
+      loadThesisDocuments(user.id),
+      loadThesisChecklist(user.id),
+      loadThesisNotes(user.id),
+      loadStudyMaterials(user.id),
+    ]).then(([remoteTodos, remoteDocs, remoteChecklist, remoteNotes, remoteStudy]) => {
         if (!active) return
         setTodos(normalizeTodos(remoteTodos))
         setDocuments(remoteDocs)
@@ -205,6 +247,8 @@ const MyThesisPage = () => {
         // Don't wipe locally saved notes if remote isn't ready/empty yet.
         const normalizedRemote = normalizeThesisNotes(remoteNotes)
         setNotes((prev) => mergeThesisNotes(prev, normalizedRemote))
+        const normalizedStudy = normalizeStudyMaterials(remoteStudy)
+        setStudyMaterials((prev) => mergeStudyMaterials(prev, normalizedStudy))
         setSynced(true)
       }
     )
@@ -287,6 +331,12 @@ const MyThesisPage = () => {
   const notesTotalCount = notes.length
   const notesHighPriority = notes.filter((note) => note.priority === 'high').length
   const notesWithLinks = notes.filter((note) => note.linkedDocumentId || note.linkedTodoId).length
+  const studyTotalCount = studyMaterials.length
+  const studyReadyCount = studyMaterials.filter((item) => item.status === 'ready').length
+  const activeStudyMaterial = useMemo(
+    () => studyMaterials.find((material) => material.id === studyActiveId) ?? null,
+    [studyMaterials, studyActiveId]
+  )
 
   const deadlineDaysLeft = useMemo(() => {
     const parsed = parseDeadlineDate(profile?.abgabedatum ?? null)
@@ -578,6 +628,270 @@ const MyThesisPage = () => {
     )
   }
 
+  const ensureStudySelection = (nextId?: string) => {
+    setStudyActiveId((prev) => {
+      if (nextId) return nextId
+      if (prev) return prev
+      return studyMaterials[0]?.id ?? ''
+    })
+  }
+
+  useEffect(() => {
+    ensureStudySelection()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studyMaterials.length])
+
+  const resetStudyQuizState = () => {
+    setStudyQuizAnswers({})
+    setStudyQuizDone(false)
+    setStudyQuizStarted(false)
+    setStudyQuizSecondsLeft(0)
+  }
+
+  const startStudyQuiz = () => {
+    resetStudyQuizState()
+    setStudyQuizStarted(true)
+    setStudyQuizSecondsLeft(6 * 60)
+  }
+
+  useEffect(() => {
+    if (!studyQuizStarted || studyQuizDone) return () => {}
+    if (studyQuizSecondsLeft <= 0) {
+      setStudyQuizDone(true)
+      setStudyQuizStarted(false)
+      return () => {}
+    }
+    const timer = window.setInterval(() => {
+      setStudyQuizSecondsLeft((prev) => Math.max(prev - 1, 0))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [studyQuizStarted, studyQuizDone, studyQuizSecondsLeft])
+
+  const chunkText = (text: string, maxChars: number) => {
+    const cleaned = text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+    if (cleaned.length <= maxChars) return [cleaned]
+    const chunks: string[] = []
+    for (let i = 0; i < cleaned.length; i += maxChars) {
+      chunks.push(cleaned.slice(i, i + maxChars))
+    }
+    return chunks
+  }
+
+  const analyzePdfToStudyMaterial = async (file: File) => {
+    const maxBytes = 20 * 1024 * 1024
+    if (!file || !(file instanceof File)) {
+      setStudyError('Bitte ein PDF auswählen.')
+      return
+    }
+    if (!/pdf/i.test(file.type) && !file.name.toLowerCase().endsWith('.pdf')) {
+      setStudyError('Nur PDF-Dateien sind erlaubt.')
+      return
+    }
+    if (file.size > maxBytes) {
+      setStudyError('Maximal 20 MB pro PDF.')
+      return
+    }
+
+    const groqKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
+    const groqModel = (import.meta.env.VITE_GROQ_CHAT_MODEL as string | undefined) || 'mixtral-8x7b-32768'
+    if (!groqKey) {
+      setStudyError('VITE_GROQ_API_KEY fehlt in .env.local.')
+      return
+    }
+
+    const timestamp = new Date().toISOString()
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `study-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    setStudyBusy(true)
+    setStudyError('')
+    setStudyProgress({ label: 'PDF wird gelesen...', percent: 8 })
+
+    // Insert placeholder immediately so the user sees it in the list.
+    const baseItem: StudyMaterial = {
+      id,
+      name: file.name,
+      size: file.size,
+      pageCount: 0,
+      uploadedAt: timestamp,
+      status: 'processing',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    setStudyMaterials((prev) => [baseItem, ...prev])
+    setStudyActiveId(id)
+    setStudyActiveTab('learn')
+    resetStudyQuizState()
+
+    try {
+      const { pageCount, text } = await extractPdfText(file)
+      if (pageCount > 50) {
+        throw new Error('Maximal 50 Seiten pro PDF.')
+      }
+      setStudyProgress({ label: 'Text wird vorbereitet...', percent: 16 })
+
+      const chunks = chunkText(text, 12000)
+      const maxChunks = 5
+      const selectedChunks =
+        chunks.length <= maxChunks
+          ? chunks
+          : Array.from({ length: maxChunks }).map((_, index) => {
+              const pick = Math.floor((index / maxChunks) * chunks.length)
+              return chunks[Math.min(Math.max(pick, 0), chunks.length - 1)]
+            })
+
+      type ChunkOutline = {
+        keyPoints: string[]
+        definitions: string[]
+        examples: string[]
+        questions: string[]
+      }
+
+      const combined: ChunkOutline = { keyPoints: [], definitions: [], examples: [], questions: [] }
+
+      for (let i = 0; i < selectedChunks.length; i += 1) {
+        setStudyProgress({
+          label: `Groq analysiert Abschnitt ${i + 1}/${selectedChunks.length}...`,
+          percent: 18 + Math.round(((i + 0.2) / selectedChunks.length) * 34),
+        })
+
+        const outlineSystem =
+          'Du bist ein Tutor. Antworte ausschließlich mit gültigem JSON. Keine Markdown-Fences.'
+        const outlineUser = `Extrahiere aus diesem Vorlesungstext die wichtigsten Inhalte.\n\nGib JSON im Format:\n{\n  \"keyPoints\": string[],\n  \"definitions\": string[],\n  \"examples\": string[],\n  \"questions\": string[]\n}\n\nText:\n${selectedChunks[i]}`
+
+        const { parsed } = await groqChatJson<ChunkOutline>({
+          apiKey: groqKey,
+          model: groqModel,
+          system: outlineSystem,
+          user: outlineUser,
+          temperature: 0.1,
+          maxTokens: 1200,
+        })
+
+        if (parsed) {
+          combined.keyPoints.push(...(parsed.keyPoints ?? []))
+          combined.definitions.push(...(parsed.definitions ?? []))
+          combined.examples.push(...(parsed.examples ?? []))
+          combined.questions.push(...(parsed.questions ?? []))
+        }
+      }
+
+      const dedupe = (items: string[]) =>
+        Array.from(new Set(items.map((i) => i.trim()).filter(Boolean))).slice(0, 120)
+
+      const outlinePayload = {
+        keyPoints: dedupe(combined.keyPoints),
+        definitions: dedupe(combined.definitions),
+        examples: dedupe(combined.examples),
+        questions: dedupe(combined.questions),
+      }
+
+      setStudyProgress({ label: 'Lern-Dokument wird erstellt...', percent: 62 })
+
+      const tutorSystem =
+        'Du bist ein Tutor für Studierende (1-5 Semester). Antworte ausschließlich mit gültigem JSON. Keine Markdown-Fences.'
+      const tutorUser = `Erstelle aus diesen Stichpunkten ein Tutor-Skript.\n\nJSON-Format:\n{\n  \"title\": string,\n  \"intro\": string,\n  \"keyTakeaways\": string[],\n  \"sections\": [\n    {\n      \"heading\": string,\n      \"bullets\": string[],\n      \"definitions\": string[],\n      \"examples\": string[],\n      \"questions\": string[]\n    }\n  ]\n}\n\nInhalt:\n${JSON.stringify(outlinePayload)}\n\nWichtig:\n- klare, schrittweise Erklaerung\n- kurze Beispiele\n- Lernfragen pro Abschnitt (3-5)\n`
+
+      const tutorResult = await groqChatJson<StudyTutorDoc>({
+        apiKey: groqKey,
+        model: groqModel,
+        system: tutorSystem,
+        user: tutorUser,
+        temperature: 0.2,
+        maxTokens: 2600,
+      })
+
+      setStudyProgress({ label: 'Quiz wird generiert...', percent: 80 })
+
+      const quizSystem =
+        'Du bist ein Tutor. Antworte ausschließlich mit gültigem JSON. Keine Markdown-Fences.'
+      const quizUser = `Erstelle 3 Sets a 5 Multiple-Choice-Fragen (easy, medium, hard).\n\nJSON-Format:\n{\n  \"easy\": [{\"question\": string, \"options\": string[], \"correct\": number, \"explanation\": string}],\n  \"medium\": [...],\n  \"hard\": [...]\n}\n\nRegeln:\n- genau 4 Optionen pro Frage\n- genau 1 korrekt\n- gute Distraktoren aus dem Stoff\n- erklaere kurz warum richtig\n\nStoff:\n${JSON.stringify(outlinePayload)}\n`
+
+      const quizResult = await groqChatJson<StudyQuiz>({
+        apiKey: groqKey,
+        model: groqModel,
+        system: quizSystem,
+        user: quizUser,
+        temperature: 0.25,
+        maxTokens: 2200,
+      })
+
+      const next: StudyMaterial = {
+        ...baseItem,
+        pageCount,
+        status: tutorResult.parsed && quizResult.parsed ? 'ready' : 'error',
+        tutor: tutorResult.parsed ?? undefined,
+        quiz: quizResult.parsed ?? undefined,
+        error:
+          tutorResult.parsed && quizResult.parsed
+            ? undefined
+            : 'Analyse unvollständig. Bitte erneut versuchen oder ein kleineres PDF nutzen.',
+        updatedAt: new Date().toISOString(),
+      }
+
+      setStudyMaterials((prev) => prev.map((item) => (item.id === id ? next : item)))
+      setStudyProgress({ label: 'Fertig', percent: 100 })
+      window.setTimeout(() => setStudyProgress(null), 900)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Analyse fehlgeschlagen.'
+      setStudyMaterials((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? { ...item, status: 'error', error: message, updatedAt: new Date().toISOString() }
+            : item
+        )
+      )
+      setStudyError(message)
+      setStudyProgress(null)
+    } finally {
+      setStudyBusy(false)
+    }
+  }
+
+  const saveStudyAsNote = (material: StudyMaterial) => {
+    const tutor = material.tutor
+    if (!tutor) {
+      setStudyError('Keine Lern-Doku vorhanden.')
+      return
+    }
+    const timestamp = new Date().toISOString()
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `note-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    const lines: string[] = []
+    if (tutor.intro) lines.push(tutor.intro.trim(), '')
+    if (tutor.keyTakeaways && tutor.keyTakeaways.length > 0) {
+      lines.push('Key Takeaways:')
+      tutor.keyTakeaways.slice(0, 10).forEach((t) => lines.push(`- ${t}`))
+      lines.push('')
+    }
+    tutor.sections.slice(0, 6).forEach((sec) => {
+      lines.push(`${sec.heading}`)
+      sec.bullets.slice(0, 8).forEach((b) => lines.push(`- ${b}`))
+      lines.push('')
+    })
+
+    const content = lines.join('\n').trim()
+
+    const nextNote: ThesisNote = {
+      id,
+      title: `Lern-Doku: ${material.name}`,
+      content,
+      subject: 'Vorlesung',
+      tags: ['lernstoff', 'pdf', 'elea'],
+      priority: 'medium',
+      inputType: 'text',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+
+    setNotes((prev) => [nextNote, ...prev])
+  }
+
   const startVoiceCapture = async () => {
     if (isTranscribing) return
 
@@ -760,6 +1074,7 @@ const MyThesisPage = () => {
       icon: <ShieldCheck size={15} />,
       meta: qualityLocked ? 'Locked' : `${eleaScoreValue}/10`,
     },
+    { id: 'study', label: 'Lernlabor', icon: <GraduationCap size={15} />, meta: `${studyReadyCount}/${studyTotalCount}` },
     { id: 'workbench', label: 'Notizen', icon: <NotepadText size={15} />, meta: `${notesTotalCount}` },
   ]
 
@@ -1482,6 +1797,341 @@ const MyThesisPage = () => {
                   </div>
                 </div>
               </div>
+            </article>
+          </section>
+        )}
+
+        {activeView === 'study' && (
+          <section className="thesis-stage-grid thesis-stage-grid--study">
+            <article className="page-card thesis-surface thesis-study-card">
+              <div className="thesis-panel-head">
+                <h2>
+                  <GraduationCap size={16} /> Lernlabor
+                </h2>
+                <button className="ghost" type="button" onClick={() => studyUploadRef.current?.click()} disabled={studyBusy}>
+                  <UploadCloud size={12} /> PDF hochladen
+                </button>
+                <input
+                  ref={studyUploadRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="upload-input"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    event.target.value = ''
+                    if (!file) return
+                    void analyzePdfToStudyMaterial(file)
+                  }}
+                />
+              </div>
+
+              <div
+                className={`thesis-dropzone ${studyBusy ? 'busy' : ''}`}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const file = event.dataTransfer.files?.[0]
+                  if (!file) return
+                  void analyzePdfToStudyMaterial(file)
+                }}
+              >
+                <p>
+                  <strong>Drag & Drop:</strong> PDF (max. 20 MB, 50 Seiten)
+                </p>
+                <small>Die Analyse nutzt nur Dateien, die du in diesem Bereich hochlaedst.</small>
+              </div>
+
+              {studyError && <div className="todo-empty thesis-task-error">{studyError}</div>}
+
+              {studyMaterials.length === 0 ? (
+                <div className="todo-empty thesis-task-empty">Noch keine PDFs hochgeladen.</div>
+              ) : (
+                <div className="thesis-study-list">
+                  {studyMaterials.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`thesis-study-item ${studyActiveId === item.id ? 'active' : ''}`}
+                      onClick={() => {
+                        setStudyActiveId(item.id)
+                        setStudyActiveTab('learn')
+                        resetStudyQuizState()
+                      }}
+                    >
+                      <div className="thesis-study-item-main">
+                        <strong title={item.name}>{item.name}</strong>
+                        <span>
+                          {formatBytes(item.size)} · {item.pageCount ? `${item.pageCount} Seiten` : 'PDF'}
+                        </span>
+                      </div>
+                      <span className={`thesis-chip ${item.status}`}>
+                        {item.status === 'processing'
+                          ? 'Analysiere...'
+                          : item.status === 'ready'
+                            ? 'Bereit'
+                            : 'Fehler'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </article>
+
+            <article className="page-card thesis-surface thesis-study-result">
+              <div className="thesis-panel-head">
+                <h2>
+                  <FileText size={16} /> Ergebnis
+                </h2>
+                <span>{activeStudyMaterial ? activeStudyMaterial.name : 'Bitte PDF auswaehlen'}</span>
+              </div>
+
+              {studyProgress && (
+                <div className="thesis-study-progress">
+                  <div className="thesis-study-progress-head">
+                    <span>{studyProgress.label}</span>
+                    <strong>{studyProgress.percent}%</strong>
+                  </div>
+                  <div className="score-bar">
+                    <div className="score-fill" style={{ width: `${studyProgress.percent}%` }} />
+                  </div>
+                </div>
+              )}
+
+              {!activeStudyMaterial ? (
+                <div className="todo-empty thesis-task-empty">Waehle links eine PDF aus oder lade eine hoch.</div>
+              ) : activeStudyMaterial.status === 'processing' ? (
+                <div className="todo-empty thesis-task-empty">Groq analysiert... Das kann kurz dauern.</div>
+              ) : activeStudyMaterial.status === 'error' ? (
+                <div className="todo-empty thesis-task-error">{activeStudyMaterial.error || 'Analyse fehlgeschlagen.'}</div>
+              ) : (
+                <>
+                  <div className="thesis-study-tabs">
+                    <button
+                      type="button"
+                      className={`ghost ${studyActiveTab === 'learn' ? 'active' : ''}`}
+                      onClick={() => setStudyActiveTab('learn')}
+                    >
+                      Lerne das Thema
+                    </button>
+                    <button
+                      type="button"
+                      className={`ghost ${studyActiveTab === 'test' ? 'active' : ''}`}
+                      onClick={() => {
+                        setStudyActiveTab('test')
+                        resetStudyQuizState()
+                      }}
+                    >
+                      Teste dich
+                    </button>
+                    <button
+                      type="button"
+                      className={`ghost ${studyActiveTab === 'save' ? 'active' : ''}`}
+                      onClick={() => setStudyActiveTab('save')}
+                    >
+                      Merken
+                    </button>
+                  </div>
+
+                  {studyActiveTab === 'learn' && (
+                    <div className="thesis-study-learn">
+                      {activeStudyMaterial.tutor ? (
+                        <>
+                          <h3 className="thesis-study-title">{activeStudyMaterial.tutor.title}</h3>
+                          {activeStudyMaterial.tutor.intro && <p className="thesis-study-intro">{activeStudyMaterial.tutor.intro}</p>}
+                          {activeStudyMaterial.tutor.keyTakeaways && activeStudyMaterial.tutor.keyTakeaways.length > 0 && (
+                            <div className="thesis-study-takeaways">
+                              <h4>Key Takeaways</h4>
+                              <ul>
+                                {activeStudyMaterial.tutor.keyTakeaways.slice(0, 12).map((item) => (
+                                  <li key={item}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <div className="thesis-study-sections">
+                            {(activeStudyMaterial.tutor.sections ?? []).map((sec) => (
+                              <details key={sec.heading} className="thesis-study-section" open>
+                                <summary>{sec.heading}</summary>
+                                {sec.bullets.length > 0 && (
+                                  <>
+                                    <h5>Erklaerung</h5>
+                                    <ul>
+                                      {sec.bullets.slice(0, 18).map((b) => (
+                                        <li key={b}>{b}</li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                                {sec.definitions.length > 0 && (
+                                  <>
+                                    <h5>Definitionen</h5>
+                                    <ul>
+                                      {sec.definitions.slice(0, 12).map((d) => (
+                                        <li key={d}>{d}</li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                                {sec.examples.length > 0 && (
+                                  <>
+                                    <h5>Beispiele</h5>
+                                    <ul>
+                                      {sec.examples.slice(0, 10).map((e) => (
+                                        <li key={e}>{e}</li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                                {sec.questions.length > 0 && (
+                                  <>
+                                    <h5>Lernfragen</h5>
+                                    <ul>
+                                      {sec.questions.slice(0, 8).map((q) => (
+                                        <li key={q}>{q}</li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                              </details>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="todo-empty thesis-task-empty">Keine Lern-Doku verfuegbar.</div>
+                      )}
+                    </div>
+                  )}
+
+                  {studyActiveTab === 'test' && (
+                    <div className="thesis-study-test">
+                      {!activeStudyMaterial.quiz ? (
+                        <div className="todo-empty thesis-task-empty">Kein Quiz verfuegbar.</div>
+                      ) : (
+                        <>
+                          <div className="thesis-study-test-head">
+                            <div className="thesis-study-level">
+                              <span>Level</span>
+                              <select
+                                className="todo-date thesis-task-select"
+                                value={studyQuizLevel}
+                                onChange={(event) => {
+                                  setStudyQuizLevel(event.target.value as typeof studyQuizLevel)
+                                  resetStudyQuizState()
+                                }}
+                              >
+                                <option value="easy">Einfach</option>
+                                <option value="medium">Mittel</option>
+                                <option value="hard">Schwer</option>
+                              </select>
+                            </div>
+                            <div className="thesis-study-timer">
+                              <span>Timer</span>
+                              <strong>
+                                {studyQuizStarted
+                                  ? `${Math.floor(studyQuizSecondsLeft / 60)
+                                      .toString()
+                                      .padStart(2, '0')}:${(studyQuizSecondsLeft % 60).toString().padStart(2, '0')}`
+                                  : '--:--'}
+                              </strong>
+                            </div>
+                            {!studyQuizStarted ? (
+                              <button className="primary" type="button" onClick={startStudyQuiz}>
+                                Quiz starten
+                              </button>
+                            ) : (
+                              <button
+                                className="ghost"
+                                type="button"
+                                onClick={() => {
+                                  setStudyQuizDone(true)
+                                  setStudyQuizStarted(false)
+                                }}
+                              >
+                                Abgeben
+                              </button>
+                            )}
+                          </div>
+
+                          {(() => {
+                            const questions = activeStudyMaterial.quiz?.[studyQuizLevel] ?? []
+                            const answered = Object.keys(studyQuizAnswers).length
+                            const correct = questions.filter((q, idx) => studyQuizAnswers[idx] === q.correct).length
+
+                            return (
+                              <>
+                                <div className="thesis-study-score">
+                                  <span>
+                                    Score: <strong>{studyQuizDone ? `${correct}/${questions.length}` : `${answered}/${questions.length} beantwortet`}</strong>
+                                  </span>
+                                </div>
+                                <div className="thesis-study-questions">
+                                  {questions.map((q, idx) => {
+                                    const picked = studyQuizAnswers[idx]
+                                    const showFeedback = studyQuizDone || (studyQuizStarted && typeof picked === 'number')
+                                    return (
+                                      <div key={`${idx}-${q.question}`} className="thesis-study-q">
+                                        <p>
+                                          <strong>{idx + 1}.</strong> {q.question}
+                                        </p>
+                                        <div className="thesis-study-options">
+                                          {q.options.map((opt, oIdx) => {
+                                            const isPicked = picked === oIdx
+                                            const isCorrect = oIdx === q.correct
+                                            const cls =
+                                              showFeedback && isPicked && isCorrect
+                                                ? 'ok'
+                                                : showFeedback && isPicked && !isCorrect
+                                                  ? 'bad'
+                                                  : showFeedback && !isPicked && isCorrect
+                                                    ? 'correct'
+                                                    : ''
+                                            return (
+                                              <button
+                                                key={`${idx}-${oIdx}`}
+                                                type="button"
+                                                className={`ghost thesis-study-option ${cls}`}
+                                                disabled={!studyQuizStarted}
+                                                onClick={() => {
+                                                  setStudyQuizAnswers((prev) => ({ ...prev, [idx]: oIdx }))
+                                                }}
+                                              >
+                                                {opt}
+                                              </button>
+                                            )
+                                          })}
+                                        </div>
+                                        {showFeedback && q.explanation && <small className="thesis-study-explain">{q.explanation}</small>}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </>
+                            )
+                          })()}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {studyActiveTab === 'save' && (
+                    <div className="thesis-study-save">
+                      <p className="thesis-subline">
+                        Speichere die Zusammenfassung als Notiz, damit du spaeter in deinem Notizen-Feed darauf zugreifen kannst.
+                      </p>
+                      <div className="thesis-actions-row">
+                        <button className="primary" type="button" onClick={() => saveStudyAsNote(activeStudyMaterial)}>
+                          In Notizen speichern
+                        </button>
+                        <button className="ghost" type="button" onClick={() => setStudyActiveTab('learn')}>
+                          Zurueck zur Lernansicht
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </article>
           </section>
         )}

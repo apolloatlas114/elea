@@ -11,6 +11,7 @@ import type {
   ThesisChecklistItem,
   TodoItem,
   ThesisNote,
+  StudyMaterial,
 } from './storage'
 import { todayIso } from './storage'
 import { supabase, supabaseEnabled } from './supabaseClient'
@@ -290,6 +291,27 @@ export const replaceThesisNotes = async (userId: string, notes: ThesisNote[]) =>
     .from('thesis_notes')
     .upsert(
       { user_id: userId, notes, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    )
+}
+
+export const loadStudyMaterials = async (userId: string): Promise<StudyMaterial[] | null> => {
+  if (!isEnabled()) return null
+  const { data, error } = await supabase!
+    .from('study_materials')
+    .select('items')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error || !data) return null
+  return (data.items ?? []) as StudyMaterial[]
+}
+
+export const replaceStudyMaterials = async (userId: string, items: StudyMaterial[]) => {
+  if (!isEnabled()) return
+  await supabase!
+    .from('study_materials')
+    .upsert(
+      { user_id: userId, items, updated_at: new Date().toISOString() },
       { onConflict: 'user_id' }
     )
 }

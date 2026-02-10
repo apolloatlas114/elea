@@ -6340,6 +6340,7 @@ select {
 .thesis-stage-grid--documents,
 .thesis-stage-grid--tasks,
 .thesis-stage-grid--quality,
+.thesis-stage-grid--study,
 .thesis-stage-grid--workbench {
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
@@ -6347,6 +6348,7 @@ select {
 .thesis-stage-grid--documents .thesis-doc-panel,
 .thesis-stage-grid--tasks .thesis-todo-panel,
 .thesis-stage-grid--quality .thesis-quality-card,
+.thesis-stage-grid--study .thesis-study-result,
 .thesis-stage-grid--workbench .thesis-notes-panel {
   grid-column: span 8;
 }
@@ -6361,6 +6363,233 @@ select {
 .thesis-stage-grid--quality .thesis-overview-analytics,
 .thesis-stage-grid--workbench .thesis-reco-card {
   grid-column: span 4;
+}
+
+.thesis-stage-grid--study .thesis-study-card {
+  grid-column: span 4;
+  align-self: start;
+}
+
+.thesis-stage-grid--study .thesis-study-result {
+  grid-column: span 8;
+  align-self: start;
+}
+
+.thesis-dropzone {
+  border: 1px dashed rgba(34, 76, 63, 0.35);
+  border-radius: 14px;
+  padding: 14px 14px;
+  background: rgba(216, 242, 240, 0.28);
+  color: rgba(22, 30, 28, 0.9);
+  display: grid;
+  gap: 6px;
+}
+
+.thesis-dropzone.busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.thesis-study-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  max-height: 380px;
+  overflow: auto;
+}
+
+.thesis-study-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(34, 76, 63, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+  text-align: left;
+}
+
+.thesis-study-item:hover {
+  border-color: rgba(34, 76, 63, 0.28);
+}
+
+.thesis-study-item.active {
+  border-color: rgba(34, 163, 148, 0.55);
+  box-shadow: 0 0 0 3px rgba(34, 163, 148, 0.12);
+}
+
+.thesis-study-item-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.thesis-study-item-main strong {
+  font-size: 0.95rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thesis-study-item-main span {
+  font-size: 0.78rem;
+  color: rgba(22, 30, 28, 0.62);
+}
+
+.thesis-chip.processing {
+  border-color: rgba(34, 163, 148, 0.35);
+  background: rgba(34, 163, 148, 0.12);
+  color: rgba(34, 76, 63, 0.92);
+}
+
+.thesis-chip.ready {
+  border-color: rgba(34, 163, 148, 0.45);
+  background: rgba(34, 163, 148, 0.14);
+  color: rgba(34, 76, 63, 0.92);
+}
+
+.thesis-chip.error {
+  border-color: rgba(212, 108, 66, 0.45);
+  background: rgba(212, 108, 66, 0.12);
+  color: rgba(122, 44, 22, 0.95);
+}
+
+.thesis-study-progress {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(34, 76, 63, 0.16);
+  background: rgba(216, 242, 240, 0.22);
+  display: grid;
+  gap: 8px;
+}
+
+.thesis-study-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: rgba(22, 30, 28, 0.8);
+  font-size: 0.9rem;
+}
+
+.thesis-study-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 10px;
+}
+
+.thesis-study-tabs .ghost.active {
+  border-color: rgba(34, 163, 148, 0.55);
+  background: rgba(34, 163, 148, 0.14);
+  color: rgba(22, 30, 28, 0.95);
+}
+
+.thesis-study-title {
+  margin: 10px 0 6px;
+}
+
+.thesis-study-intro {
+  color: rgba(22, 30, 28, 0.76);
+}
+
+.thesis-study-section {
+  border: 1px solid rgba(34, 76, 63, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
+.thesis-study-section summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: rgba(22, 30, 28, 0.92);
+}
+
+.thesis-study-section h5 {
+  margin: 10px 0 6px;
+  font-size: 0.85rem;
+  color: rgba(22, 30, 28, 0.85);
+}
+
+.thesis-study-test-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 10px;
+}
+
+.thesis-study-test-head .primary {
+  padding: 10px 14px;
+}
+
+.thesis-study-test-head .ghost {
+  padding: 10px 14px;
+}
+
+.thesis-study-level span,
+.thesis-study-timer span {
+  display: block;
+  font-size: 0.75rem;
+  color: rgba(22, 30, 28, 0.62);
+  margin-bottom: 6px;
+}
+
+.thesis-study-score {
+  margin: 10px 0;
+  color: rgba(22, 30, 28, 0.8);
+}
+
+.thesis-study-options {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.thesis-study-option {
+  justify-content: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.thesis-study-option.ok {
+  border-color: rgba(34, 163, 148, 0.5);
+  background: rgba(34, 163, 148, 0.12);
+}
+
+.thesis-study-option.bad {
+  border-color: rgba(212, 108, 66, 0.5);
+  background: rgba(212, 108, 66, 0.1);
+}
+
+.thesis-study-option.correct {
+  border-color: rgba(34, 163, 148, 0.32);
+  background: rgba(34, 163, 148, 0.08);
+}
+
+.thesis-study-explain {
+  display: block;
+  margin-top: 8px;
+  color: rgba(22, 30, 28, 0.72);
+}
+
+@media (max-width: 991px) {
+  .thesis-stage-grid--study .thesis-study-card,
+  .thesis-stage-grid--study .thesis-study-result {
+    grid-column: span 12;
+  }
+
+  .thesis-study-test-head {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
 }
 
 .thesis-stage-grid--tasks .thesis-checklist-card {
