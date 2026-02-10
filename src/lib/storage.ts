@@ -62,6 +62,7 @@ export type TodoItem = {
   detail: string
   date: string
   done: boolean
+  linkedDocumentId?: string
 }
 
 export type ThesisDocument = {
@@ -172,7 +173,8 @@ export const normalizeTodos = (value: unknown): TodoItem[] => {
       date = today
     }
     const done = typeof raw?.done === 'boolean' ? raw.done : false
-    return { id, title, detail, date, done }
+    const linkedDocumentId = typeof raw?.linkedDocumentId === 'string' ? raw.linkedDocumentId : ''
+    return { id, title, detail, date, done, linkedDocumentId }
   })
 }
 

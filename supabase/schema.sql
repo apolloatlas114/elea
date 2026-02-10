@@ -46,8 +46,11 @@ create table if not exists todos (
   title text not null,
   detail text,
   due_date date not null,
+  linked_document_id text,
   created_at timestamp with time zone default now()
 );
+
+alter table todos add column if not exists linked_document_id text;
 
 create index if not exists todos_user_id_idx on todos(user_id);
 

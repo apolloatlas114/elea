@@ -4687,6 +4687,94 @@ select {
   padding-right: 4px;
 }
 
+.thesis-task-create {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(96, 128, 137, 0.22);
+  border-radius: 14px;
+  background: rgba(248, 253, 253, 0.92);
+}
+
+.thesis-task-field {
+  display: grid;
+  gap: 6px;
+}
+
+.thesis-task-field > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #506971;
+}
+
+.thesis-task-create-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.thesis-task-select {
+  min-height: 38px;
+}
+
+.thesis-task-error {
+  margin: 0;
+}
+
+.thesis-task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  max-height: min(48vh, 440px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.thesis-task-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(98, 128, 137, 0.22);
+  border-radius: 14px;
+  background: rgba(252, 255, 255, 0.96);
+}
+
+.thesis-task-card.done {
+  background: rgba(238, 251, 248, 0.94);
+  border-color: rgba(56, 171, 157, 0.3);
+}
+
+.thesis-task-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.thesis-task-card-head strong {
+  font-size: 13px;
+  color: #1f2f37;
+}
+
+.thesis-task-card-detail {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #5d737a;
+}
+
+.thesis-task-card-meta {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: #567079;
+}
+
+.thesis-task-card-actions {
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .thesis-side-stack {
   display: grid;
   gap: 10px;
@@ -4791,6 +4879,7 @@ select {
 
   .thesis-doc-list,
   .thesis-todo-list,
+  .thesis-task-grid,
   .thesis-checklist-list {
     max-height: min(36vh, 320px);
   }
@@ -4813,6 +4902,10 @@ select {
 
 @media (max-width: 640px) {
   .thesis-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .thesis-task-create-row {
     grid-template-columns: 1fr;
   }
 }

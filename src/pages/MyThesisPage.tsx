@@ -90,6 +90,12 @@ const defaultNotes = {
 type DocFilter = 'all' | 'pdf' | 'doc' | 'docx'
 type TodoView = 'all' | 'today' | 'week' | 'overdue'
 type ThesisView = 'overview' | 'documents' | 'tasks' | 'quality' | 'workbench'
+type TodoDraft = {
+  title: string
+  detail: string
+  date: string
+  linkedDocumentId: string
+}
 
 const MyThesisPage = () => {
   const navigate = useNavigate()
@@ -111,6 +117,14 @@ const MyThesisPage = () => {
   const [docFilter, setDocFilter] = useState<DocFilter>('all')
   const [todoView, setTodoView] = useState<TodoView>('all')
   const [activeView, setActiveView] = useState<ThesisView>('overview')
+  const [todoFormOpen, setTodoFormOpen] = useState(false)
+  const [todoError, setTodoError] = useState('')
+  const [todoDraft, setTodoDraft] = useState<TodoDraft>(() => ({
+    title: '',
+    detail: '',
+    date: todayIso(),
+    linkedDocumentId: '',
+  }))
   const [synced, setSynced] = useState(false)
 
   const { user } = useAuth()
@@ -374,6 +388,9 @@ const MyThesisPage = () => {
   }, [profile, documents.length, todosWeek, stress.value, assessment?.recommendedPlan, plan])
 
   const latestDocument = documents[0] ?? null
+  const documentNameById = useMemo(() => {
+    return new Map(documents.map((doc) => [doc.id, doc.name]))
+  }, [documents])
 
   const appendDocuments = (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -402,13 +419,41 @@ const MyThesisPage = () => {
     setDocuments((prev) => prev.filter((doc) => doc.id !== id))
   }
 
-  const addTodo = () => {
+  const openTodoForm = () => {
+    setTodoError('')
+    setTodoFormOpen(true)
+    setTodoDraft((prev) => ({ ...prev, date: prev.date || today }))
+  }
+
+  const createTodo = () => {
+    if (!todoDraft.title.trim()) {
+      setTodoError('Bitte gib einen Titel für die Aufgabe ein.')
+      return
+    }
+    if (!todoDraft.date) {
+      setTodoError('Bitte setze eine Deadline für die Aufgabe.')
+      return
+    }
+
     const id =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `todo-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-    setTodos((prev) => [{ id, title: '', detail: '', date: today, done: false }, ...prev])
+    setTodos((prev) => [
+      {
+        id,
+        title: todoDraft.title.trim(),
+        detail: todoDraft.detail.trim(),
+        date: todoDraft.date,
+        done: false,
+        linkedDocumentId: todoDraft.linkedDocumentId,
+      },
+      ...prev,
+    ])
+    setTodoDraft({ title: '', detail: '', date: today, linkedDocumentId: '' })
+    setTodoError('')
+    setTodoFormOpen(false)
   }
 
   const updateTodo = (id: string, patch: Partial<TodoItem>) => {
@@ -456,7 +501,7 @@ const MyThesisPage = () => {
   const viewItems: Array<{ id: ThesisView; label: string; icon: JSX.Element; meta: string }> = [
     { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={15} />, meta: `${progressValue}%` },
     { id: 'documents', label: 'Dokumente', icon: <FolderOpen size={15} />, meta: `${documents.length}` },
-    { id: 'tasks', label: 'Tasks', icon: <ListTodo size={15} />, meta: `${openTodos}/${todos.length}` },
+    { id: 'tasks', label: 'Aufgaben', icon: <ListTodo size={15} />, meta: `${openTodos}/${todos.length}` },
     {
       id: 'quality',
       label: 'Elea Score',
@@ -507,7 +552,7 @@ const MyThesisPage = () => {
             </div>
             <div className="thesis-stage-head-kpis">
               <span className="thesis-chip">Fortschritt {progressValue}%</span>
-              <span className="thesis-chip">Heute {todosToday} Tasks</span>
+              <span className="thesis-chip">Heute {todosToday} Aufgaben</span>
               <span className={`thesis-chip ${qualityLocked ? 'warn' : 'ok'}`}>
                 Elea Score {qualityLocked ? 'Locked' : `${eleaScoreValue}/10`}
               </span>
@@ -679,10 +724,10 @@ const MyThesisPage = () => {
             <article className="page-card thesis-surface thesis-pro-tasks-card">
               <div className="thesis-panel-head">
                 <h2>
-                  <CalendarDays size={16} /> Next Tasks
+                  <CalendarDays size={16} /> Nächste Aufgaben
                 </h2>
                 <button className="ghost" type="button" onClick={() => setActiveView('tasks')}>
-                  Board
+                  Öffnen
                 </button>
               </div>
               <div className="thesis-pro-stat-grid">
@@ -892,9 +937,9 @@ const MyThesisPage = () => {
             <article className="page-card thesis-surface thesis-todo-panel thesis-todo-card">
               <div className="thesis-panel-head">
                 <h2>
-                  <CalendarDays size={16} /> Task Board
+                  <CalendarDays size={16} /> Aufgaben
                 </h2>
-                <button className="primary todo-add" type="button" onClick={addTodo}>
+                <button className="primary todo-add" type="button" onClick={openTodoForm}>
                   Aufgabe hinzufügen
                 </button>
               </div>
@@ -926,46 +971,95 @@ const MyThesisPage = () => {
                 </button>
               </div>
 
-              <div className="todo-list thesis-todo-list">
+              {todoFormOpen && (
+                <div className="thesis-task-create">
+                  <label className="thesis-task-field" htmlFor="todo-title">
+                    <span>Titel</span>
+                    <input
+                      id="todo-title"
+                      className="todo-input"
+                      value={todoDraft.title}
+                      placeholder="Titel der Aufgabe"
+                      onChange={(event) => setTodoDraft((prev) => ({ ...prev, title: event.target.value }))}
+                    />
+                  </label>
+                  <label className="thesis-task-field" htmlFor="todo-detail">
+                    <span>Beschreibung</span>
+                    <input
+                      id="todo-detail"
+                      className="todo-input"
+                      value={todoDraft.detail}
+                      placeholder="Beschreibung oder nächster Schritt"
+                      onChange={(event) => setTodoDraft((prev) => ({ ...prev, detail: event.target.value }))}
+                    />
+                  </label>
+                  <div className="thesis-task-create-row">
+                    <label className="thesis-task-field" htmlFor="todo-date">
+                      <span>Deadline</span>
+                      <input
+                        id="todo-date"
+                        className="todo-date"
+                        type="date"
+                        value={todoDraft.date}
+                        onChange={(event) => setTodoDraft((prev) => ({ ...prev, date: event.target.value }))}
+                      />
+                    </label>
+                    <label className="thesis-task-field" htmlFor="todo-linked-doc">
+                      <span>Internes Dokument</span>
+                      <select
+                        id="todo-linked-doc"
+                        className="todo-date thesis-task-select"
+                        value={todoDraft.linkedDocumentId}
+                        onChange={(event) => setTodoDraft((prev) => ({ ...prev, linkedDocumentId: event.target.value }))}
+                      >
+                        <option value="">Kein Dokument verlinken</option>
+                        {documents.map((doc) => (
+                          <option key={doc.id} value={doc.id}>
+                            {doc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {todoError && <div className="todo-empty thesis-task-error">{todoError}</div>}
+                  <div className="thesis-actions-row">
+                    <button className="primary" type="button" onClick={createTodo}>
+                      Aufgabe erstellen
+                    </button>
+                    <button className="ghost" type="button" onClick={() => setTodoFormOpen(false)}>
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="thesis-task-grid">
                 {filteredTodos.length === 0 ? (
                   <div className="todo-empty">Keine Aufgaben in dieser Ansicht.</div>
                 ) : (
                   filteredTodos.map((todo) => (
-                    <div key={todo.id} className="todo-item">
-                      <div className="todo-main">
-                        <label className="thesis-todo-inline-check">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(todo.done)}
-                            onChange={(event) => updateTodo(todo.id, { done: event.target.checked })}
-                          />
-                          <span>{todo.done ? 'Erledigt' : 'Offen'}</span>
-                        </label>
-                        <input
-                          className="todo-input"
-                          value={todo.title}
-                          placeholder="Aufgabe"
-                          onChange={(event) => updateTodo(todo.id, { title: event.target.value })}
-                        />
-                        <input
-                          className="todo-input"
-                          value={todo.detail}
-                          placeholder="Details oder nächster Schritt"
-                          onChange={(event) => updateTodo(todo.id, { detail: event.target.value })}
-                        />
+                    <article key={todo.id} className={`thesis-task-card ${todo.done ? 'done' : ''}`}>
+                      <div className="thesis-task-card-head">
+                        <strong>{todo.title}</strong>
+                        <span className={`thesis-chip ${todo.done ? 'ok' : 'warn'}`}>{todo.done ? 'Erledigt' : 'Offen'}</span>
                       </div>
-                      <div className="todo-controls">
-                        <input
-                          className="todo-date"
-                          type="date"
-                          value={todo.date}
-                          onChange={(event) => updateTodo(todo.id, { date: event.target.value })}
-                        />
+                      {todo.detail && <p className="thesis-task-card-detail">{todo.detail}</p>}
+                      <div className="thesis-task-card-meta">
+                        <span>Deadline: {todo.date}</span>
+                        <span>
+                          Dokument:{' '}
+                          {todo.linkedDocumentId ? documentNameById.get(todo.linkedDocumentId) || 'Nicht gefunden' : 'Keins'}
+                        </span>
+                      </div>
+                      <div className="todo-controls thesis-task-card-actions">
+                        <button className="ghost" type="button" onClick={() => updateTodo(todo.id, { done: !todo.done })}>
+                          {todo.done ? 'Als offen markieren' : 'Als erledigt markieren'}
+                        </button>
                         <button className="ghost todo-remove" type="button" onClick={() => removeTodo(todo.id)}>
                           Entfernen
                         </button>
                       </div>
-                    </div>
+                    </article>
                   ))
                 )}
               </div>
@@ -1154,7 +1248,14 @@ const MyThesisPage = () => {
                 ))}
               </ul>
               <div className="thesis-actions-row">
-                <button className="primary" type="button" onClick={addTodo}>
+                <button
+                  className="primary"
+                  type="button"
+                  onClick={() => {
+                    setActiveView('tasks')
+                    openTodoForm()
+                  }}
+                >
                   Als Aufgabe anlegen
                 </button>
                 <button className="ghost" type="button" onClick={() => navigate('/coaching')}>

@@ -160,18 +160,34 @@ export const saveSchoolProgress = async (userId: string, progress: SchoolProgres
 
 export const loadTodos = async (userId: string): Promise<TodoItem[]> => {
   if (!isEnabled()) return []
-  const { data, error } = await supabase!
+  let data: Array<{ id: string; title: string; detail: string | null; due_date: string | null; linked_document_id?: string | null }> | null =
+    null
+
+  const primary = await supabase!
     .from('todos')
-    .select('id,title,detail,due_date')
+    .select('id,title,detail,due_date,linked_document_id')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
-  if (error || !data) return []
+
+  if (!primary.error && primary.data) {
+    data = primary.data
+  } else {
+    const fallback = await supabase!
+      .from('todos')
+      .select('id,title,detail,due_date')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+    if (fallback.error || !fallback.data) return []
+    data = fallback.data
+  }
+
   return data.map((row) => ({
     id: row.id,
     title: row.title ?? '',
     detail: row.detail ?? '',
     date: row.due_date ?? todayIso(),
     done: false,
+    linkedDocumentId: row.linked_document_id ?? '',
   }))
 }
 
@@ -185,8 +201,20 @@ export const replaceTodos = async (userId: string, todos: TodoItem[]) => {
     title: todo.title,
     detail: todo.detail,
     due_date: todo.date,
+    linked_document_id: todo.linkedDocumentId || null,
   }))
-  await supabase!.from('todos').insert(payload)
+
+  const primary = await supabase!.from('todos').insert(payload)
+  if (!primary.error) return
+
+  const fallbackPayload = todos.map((todo) => ({
+    id: todo.id,
+    user_id: userId,
+    title: todo.title,
+    detail: todo.detail,
+    due_date: todo.date,
+  }))
+  await supabase!.from('todos').insert(fallbackPayload)
 }
 
 export const loadThesisDocuments = async (userId: string): Promise<ThesisDocument[]> => {
