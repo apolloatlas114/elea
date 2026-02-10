@@ -274,6 +274,38 @@ export const normalizeThesisNotes = (value: unknown): ThesisNote[] => {
   return []
 }
 
+const parseTimestamp = (value: string | undefined) => {
+  if (!value) return 0
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+export const mergeThesisNotes = (localNotes: ThesisNote[], remoteNotes: ThesisNote[]) => {
+  // Keep user-created notes safe if the remote source is empty/stale.
+  // Prefer the newest `updatedAt` per note id.
+  const map = new Map<string, ThesisNote>()
+  localNotes.forEach((note) => map.set(note.id, note))
+
+  remoteNotes.forEach((note) => {
+    const existing = map.get(note.id)
+    if (!existing) {
+      map.set(note.id, note)
+      return
+    }
+    const existingTs = parseTimestamp(existing.updatedAt || existing.createdAt)
+    const incomingTs = parseTimestamp(note.updatedAt || note.createdAt)
+    if (incomingTs >= existingTs) {
+      map.set(note.id, note)
+    }
+  })
+
+  return Array.from(map.values()).sort((a, b) => {
+    const aTs = parseTimestamp(a.updatedAt || a.createdAt)
+    const bTs = parseTimestamp(b.updatedAt || b.createdAt)
+    return bTs - aTs
+  })
+}
+
 export const parseDeadlineDate = (value?: string | null) => {
   if (!value) return null
   const trimmed = value.trim()

@@ -34,7 +34,7 @@ import {
   replaceThesisDocuments,
   replaceTodos,
 } from '../lib/supabaseData'
-import { STORAGE_KEYS, normalizeThesisNotes, normalizeTodos, parseDeadlineDate, parseJson, todayIso } from '../lib/storage'
+import { STORAGE_KEYS, mergeThesisNotes, normalizeThesisNotes, normalizeTodos, parseDeadlineDate, parseJson, todayIso } from '../lib/storage'
 import type { AssessmentResult, Plan, ThesisChecklistItem, ThesisDocument, ThesisNote, TodoItem } from '../lib/storage'
 
 const formatBytes = (bytes: number) => {
@@ -202,7 +202,9 @@ const MyThesisPage = () => {
         setTodos(normalizeTodos(remoteTodos))
         setDocuments(remoteDocs)
         setChecklist(mergeChecklist(remoteChecklist))
-        setNotes(normalizeThesisNotes(remoteNotes))
+        // Don't wipe locally saved notes if remote isn't ready/empty yet.
+        const normalizedRemote = normalizeThesisNotes(remoteNotes)
+        setNotes((prev) => mergeThesisNotes(prev, normalizedRemote))
         setSynced(true)
       }
     )
@@ -254,9 +256,10 @@ const MyThesisPage = () => {
         if (!remoteNotes) return
         const normalized = normalizeThesisNotes(remoteNotes)
         setNotes((prev) => {
+          const merged = mergeThesisNotes(prev, normalized)
           const prevSig = JSON.stringify(prev.map((note) => [note.id, note.updatedAt]))
-          const nextSig = JSON.stringify(normalized.map((note) => [note.id, note.updatedAt]))
-          return prevSig === nextSig ? prev : normalized
+          const nextSig = JSON.stringify(merged.map((note) => [note.id, note.updatedAt]))
+          return prevSig === nextSig ? prev : merged
         })
       })
     }, 12000)
