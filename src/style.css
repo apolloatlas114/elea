@@ -2226,31 +2226,7 @@ select {
 }
 
 .commitment-content {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 16px;
-  align-items: center;
-}
-
-.commitment-visual {
-  display: grid;
-  gap: 8px;
-  justify-items: center;
-}
-
-.commitment-photo {
-  width: 140px;
-  height: 140px;
-  border-radius: 24px;
-  background: #dff1ff;
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-}
-
-.commitment-signature {
-  font-size: 12px;
-  color: #6f7578;
+  display: block;
 }
 
 .modal-actions {

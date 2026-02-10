@@ -1132,10 +1132,6 @@ const CommitmentModal = ({ profile, onClose }: { profile: Profile; onClose: () =
               Verstanden
             </button>
           </div>
-          <div className="commitment-visual">
-            <div className="commitment-photo">ANNA</div>
-            <div className="commitment-signature">Anna Neuhaus - PhD</div>
-          </div>
         </div>
       </div>
     </div>
