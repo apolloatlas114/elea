@@ -57,3 +57,50 @@ export const groqChatJson = async <T,>(args: {
   }
 }
 
+const isModelError = (message: string) => {
+  const needle = message.toLowerCase()
+  return (
+    needle.includes('decommission') ||
+    needle.includes('no longer supported') ||
+    needle.includes('model') && needle.includes('deprecated') ||
+    needle.includes('invalid model')
+  )
+}
+
+export const groqChatJsonWithFallback = async <T,>(args: {
+  apiKey: string
+  models: string[]
+  system: string
+  user: string
+  temperature?: number
+  maxTokens?: number
+}): Promise<{ raw: string; parsed: T | null; modelUsed: string }> => {
+  const models = args.models.filter((m) => typeof m === 'string' && m.trim().length > 0)
+  if (models.length === 0) {
+    throw new Error('Kein Groq-Modell konfiguriert.')
+  }
+
+  let lastError: unknown = null
+  for (const model of models) {
+    try {
+      const result = await groqChatJson<T>({
+        apiKey: args.apiKey,
+        model,
+        system: args.system,
+        user: args.user,
+        temperature: args.temperature,
+        maxTokens: args.maxTokens,
+      })
+      return { ...result, modelUsed: model }
+    } catch (error) {
+      lastError = error
+      const msg = error instanceof Error ? error.message : String(error)
+      // Only fall back for model-related issues; propagate other failures (rate limit, auth, etc).
+      if (!isModelError(msg)) {
+        throw error
+      }
+    }
+  }
+
+  throw (lastError instanceof Error ? lastError : new Error('Groq request failed.'))
+}

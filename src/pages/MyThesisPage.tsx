@@ -37,7 +37,7 @@ import {
   replaceTodos,
   replaceStudyMaterials,
 } from '../lib/supabaseData'
-import { groqChatJson } from '../lib/groq'
+import { groqChatJsonWithFallback } from '../lib/groq'
 import { extractPdfText } from '../lib/pdf'
 import {
   STORAGE_KEYS,
@@ -693,7 +693,13 @@ const MyThesisPage = () => {
     }
 
     const groqKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
-    const groqModel = (import.meta.env.VITE_GROQ_CHAT_MODEL as string | undefined) || 'mixtral-8x7b-32768'
+    const preferredModel = (import.meta.env.VITE_GROQ_CHAT_MODEL as string | undefined) || 'llama-3.3-70b-versatile'
+    const fallbackModels = [
+      preferredModel,
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'gemma2-9b-it',
+    ]
     if (!groqKey) {
       setStudyError('VITE_GROQ_API_KEY fehlt in .env.local.')
       return
@@ -761,9 +767,9 @@ const MyThesisPage = () => {
           'Du bist ein Tutor. Antworte ausschließlich mit gültigem JSON. Keine Markdown-Fences.'
         const outlineUser = `Extrahiere aus diesem Vorlesungstext die wichtigsten Inhalte.\n\nGib JSON im Format:\n{\n  \"keyPoints\": string[],\n  \"definitions\": string[],\n  \"examples\": string[],\n  \"questions\": string[]\n}\n\nText:\n${selectedChunks[i]}`
 
-        const { parsed } = await groqChatJson<ChunkOutline>({
+        const { parsed } = await groqChatJsonWithFallback<ChunkOutline>({
           apiKey: groqKey,
-          model: groqModel,
+          models: fallbackModels,
           system: outlineSystem,
           user: outlineUser,
           temperature: 0.1,
@@ -794,9 +800,9 @@ const MyThesisPage = () => {
         'Du bist ein Tutor für Studierende (1-5 Semester). Antworte ausschließlich mit gültigem JSON. Keine Markdown-Fences.'
       const tutorUser = `Erstelle aus diesen Stichpunkten ein Tutor-Skript.\n\nJSON-Format:\n{\n  \"title\": string,\n  \"intro\": string,\n  \"keyTakeaways\": string[],\n  \"sections\": [\n    {\n      \"heading\": string,\n      \"bullets\": string[],\n      \"definitions\": string[],\n      \"examples\": string[],\n      \"questions\": string[]\n    }\n  ]\n}\n\nInhalt:\n${JSON.stringify(outlinePayload)}\n\nWichtig:\n- klare, schrittweise Erklaerung\n- kurze Beispiele\n- Lernfragen pro Abschnitt (3-5)\n`
 
-      const tutorResult = await groqChatJson<StudyTutorDoc>({
+      const tutorResult = await groqChatJsonWithFallback<StudyTutorDoc>({
         apiKey: groqKey,
-        model: groqModel,
+        models: fallbackModels,
         system: tutorSystem,
         user: tutorUser,
         temperature: 0.2,
@@ -809,9 +815,9 @@ const MyThesisPage = () => {
         'Du bist ein Tutor. Antworte ausschließlich mit gültigem JSON. Keine Markdown-Fences.'
       const quizUser = `Erstelle 3 Sets a 5 Multiple-Choice-Fragen (easy, medium, hard).\n\nJSON-Format:\n{\n  \"easy\": [{\"question\": string, \"options\": string[], \"correct\": number, \"explanation\": string}],\n  \"medium\": [...],\n  \"hard\": [...]\n}\n\nRegeln:\n- genau 4 Optionen pro Frage\n- genau 1 korrekt\n- gute Distraktoren aus dem Stoff\n- erklaere kurz warum richtig\n\nStoff:\n${JSON.stringify(outlinePayload)}\n`
 
-      const quizResult = await groqChatJson<StudyQuiz>({
+      const quizResult = await groqChatJsonWithFallback<StudyQuiz>({
         apiKey: groqKey,
-        model: groqModel,
+        models: fallbackModels,
         system: quizSystem,
         user: quizUser,
         temperature: 0.25,
