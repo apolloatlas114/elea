@@ -6382,16 +6382,22 @@ select {
 }
 
 .thesis-right-stage.workbench-open {
-  overflow: auto;
+  overflow: auto !important;
 }
 
 .thesis-right-stage.workbench-open .thesis-stage-grid--workbench {
   min-height: 0;
-  overflow: visible;
+  overflow: auto !important;
+  height: 100%;
 }
 
 .thesis-right-stage.workbench-open .thesis-stage-grid--workbench .page-card {
-  overflow: visible;
+  overflow: visible !important;
+}
+
+.thesis-right-stage.workbench-open .thesis-notes-panel,
+.thesis-right-stage.workbench-open .thesis-reco-card {
+  overflow: visible !important;
 }
 
 .thesis-stage-grid .page-card {
@@ -7065,6 +7071,15 @@ select {
   .app.app--thesis-fit .thesis-stage-grid {
     min-height: 0;
     overflow: hidden;
+  }
+
+  .app.app--thesis-fit .thesis-right-stage.workbench-open {
+    overflow: auto !important;
+  }
+
+  .app.app--thesis-fit .thesis-right-stage.workbench-open .thesis-stage-grid--workbench {
+    overflow: auto !important;
+    height: 100% !important;
   }
 }
 
