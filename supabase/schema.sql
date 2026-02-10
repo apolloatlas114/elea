@@ -72,6 +72,12 @@ create table if not exists thesis_checklist (
   updated_at timestamp with time zone default now()
 );
 
+create table if not exists thesis_notes (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  notes jsonb not null default '[]'::jsonb,
+  updated_at timestamp with time zone default now()
+);
+
 create table if not exists mental_health_logs (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid references auth.users(id) on delete cascade,
@@ -198,6 +204,7 @@ alter table school_progress enable row level security;
 alter table todos enable row level security;
 alter table thesis_documents enable row level security;
 alter table thesis_checklist enable row level security;
+alter table thesis_notes enable row level security;
 alter table mental_health_logs enable row level security;
 alter table phd_bookings enable row level security;
 alter table deadline_logs enable row level security;
@@ -238,6 +245,10 @@ create policy "thesis_docs_user_policy" on thesis_documents
 
 drop policy if exists "thesis_checklist_user_policy" on thesis_checklist;
 create policy "thesis_checklist_user_policy" on thesis_checklist
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "thesis_notes_user_policy" on thesis_notes;
+create policy "thesis_notes_user_policy" on thesis_notes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 

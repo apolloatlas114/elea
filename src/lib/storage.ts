@@ -65,6 +65,17 @@ export type TodoItem = {
   linkedDocumentId?: string
 }
 
+const isPlaceholderTodo = (title: string, detail: string) => {
+  const t = title.trim().toLowerCase()
+  const d = detail.trim().toLowerCase()
+  if (!t) return true
+  if (t === 'noch keine aufgabe') return true
+  if (t === 'keine aufgabe') return true
+  if (t === 'placeholder') return true
+  if (d === 'in my thesis') return true
+  return false
+}
+
 export type ThesisDocument = {
   id: string
   name: string
@@ -79,6 +90,20 @@ export type ThesisChecklistItem = {
   title: string
   detail: string
   done: boolean
+}
+
+export type ThesisNote = {
+  id: string
+  title: string
+  content: string
+  subject: string
+  tags: string[]
+  priority: 'low' | 'medium' | 'high'
+  linkedDocumentId?: string
+  linkedTodoId?: string
+  inputType: 'text' | 'voice'
+  createdAt: string
+  updatedAt: string
 }
 
 
@@ -162,20 +187,91 @@ export const todayIso = () => toLocalIsoDate(new Date())
 export const normalizeTodos = (value: unknown): TodoItem[] => {
   if (!Array.isArray(value)) return []
   const today = todayIso()
-  return value.map((item, index) => {
-    const raw = item as Record<string, unknown>
-    const id =
-      typeof raw?.id === 'string' && raw.id.trim().length > 0 ? raw.id : `todo-${Date.now()}-${index}`
-    const title = typeof raw?.title === 'string' ? raw.title : ''
-    const detail = typeof raw?.detail === 'string' ? raw.detail : ''
-    let date = typeof raw?.date === 'string' ? raw.date : ''
-    if (!date && typeof raw?.slotId === 'string' && raw.slotId) {
-      date = today
-    }
-    const done = typeof raw?.done === 'boolean' ? raw.done : false
-    const linkedDocumentId = typeof raw?.linkedDocumentId === 'string' ? raw.linkedDocumentId : ''
-    return { id, title, detail, date, done, linkedDocumentId }
-  })
+  return value
+    .map((item, index) => {
+      const raw = item as Record<string, unknown>
+      const id =
+        typeof raw?.id === 'string' && raw.id.trim().length > 0 ? raw.id : `todo-${Date.now()}-${index}`
+      const title = typeof raw?.title === 'string' ? raw.title : ''
+      const detail = typeof raw?.detail === 'string' ? raw.detail : ''
+      let date = typeof raw?.date === 'string' ? raw.date : ''
+      if (!date && typeof raw?.slotId === 'string' && raw.slotId) {
+        date = today
+      }
+      const done = typeof raw?.done === 'boolean' ? raw.done : false
+      const linkedDocumentId = typeof raw?.linkedDocumentId === 'string' ? raw.linkedDocumentId : ''
+      return { id, title, detail, date, done, linkedDocumentId }
+    })
+    .filter((todo) => !isPlaceholderTodo(todo.title, todo.detail))
+}
+
+export const normalizeThesisNotes = (value: unknown): ThesisNote[] => {
+  const now = new Date().toISOString()
+  if (!value) return []
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item, index) => {
+        const raw = item as Record<string, unknown>
+        const id =
+          typeof raw?.id === 'string' && raw.id.trim().length > 0 ? raw.id : `note-${Date.now()}-${index}`
+        const title = typeof raw?.title === 'string' ? raw.title.trim() : ''
+        const content = typeof raw?.content === 'string' ? raw.content.trim() : ''
+        const subject = typeof raw?.subject === 'string' ? raw.subject.trim() : ''
+        const tags = Array.isArray(raw?.tags) ? raw.tags.filter((tag): tag is string => typeof tag === 'string') : []
+        const priority = raw?.priority === 'high' || raw?.priority === 'medium' || raw?.priority === 'low' ? raw.priority : 'medium'
+        const linkedDocumentId = typeof raw?.linkedDocumentId === 'string' ? raw.linkedDocumentId : ''
+        const linkedTodoId = typeof raw?.linkedTodoId === 'string' ? raw.linkedTodoId : ''
+        const inputType = raw?.inputType === 'voice' ? 'voice' : 'text'
+        const createdAt = typeof raw?.createdAt === 'string' && raw.createdAt.length > 0 ? raw.createdAt : now
+        const updatedAt = typeof raw?.updatedAt === 'string' && raw.updatedAt.length > 0 ? raw.updatedAt : createdAt
+        return {
+          id,
+          title,
+          content,
+          subject,
+          tags,
+          priority,
+          linkedDocumentId,
+          linkedTodoId,
+          inputType,
+          createdAt,
+          updatedAt,
+        } as ThesisNote
+      })
+      .filter((note) => note.title.length > 0 || note.content.length > 0)
+  }
+
+  if (typeof value === 'object') {
+    const legacy = value as Record<string, unknown>
+    const mapping: Array<{ key: string; title: string; subject: string; tags: string[] }> = [
+      { key: 'chapter', title: 'Kapitel-Fokus', subject: 'Thesis', tags: ['kapitel'] },
+      { key: 'method', title: 'Methodik To-dos', subject: 'Methodik', tags: ['methodik'] },
+      { key: 'writing', title: 'Schreib-Reminder', subject: 'Schreiben', tags: ['schreiben'] },
+    ]
+    return mapping
+      .map((entry, index) => {
+        const rawContent = legacy[entry.key]
+        const content = typeof rawContent === 'string' ? rawContent.trim() : ''
+        if (!content) return null
+        return {
+          id: `note-legacy-${index}`,
+          title: entry.title,
+          content,
+          subject: entry.subject,
+          tags: entry.tags,
+          priority: 'medium',
+          linkedDocumentId: '',
+          linkedTodoId: '',
+          inputType: 'text',
+          createdAt: now,
+          updatedAt: now,
+        } as ThesisNote
+      })
+      .filter((note): note is ThesisNote => Boolean(note))
+  }
+
+  return []
 }
 
 export const parseDeadlineDate = (value?: string | null) => {

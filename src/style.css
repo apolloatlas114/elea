@@ -4633,9 +4633,10 @@ select {
 
 .thesis-docs-card,
 .thesis-todo-card {
-  padding: 12px;
+  padding: 10px;
   display: grid;
-  gap: 10px;
+  gap: 6px;
+  align-content: start;
 }
 
 .thesis-upload-label {
@@ -4656,8 +4657,9 @@ select {
 .thesis-todo-stats {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+  margin-top: 0;
 }
 
 .thesis-chip {
@@ -4724,27 +4726,32 @@ select {
 .thesis-task-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-  max-height: min(48vh, 440px);
+  gap: 8px;
+  max-height: min(56vh, 520px);
   overflow: auto;
-  padding-right: 4px;
+  padding-right: 2px;
+  align-content: start;
 }
 
 .thesis-task-card.notification {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
   isolation: isolate;
   position: relative;
   width: 100%;
-  min-height: 8rem;
-  background: #29292c;
+  min-height: 176px;
+  background: linear-gradient(180deg, #e7f5f6 0%, #dff1f2 100%);
   border-radius: 1rem;
-  overflow: hidden;
-  font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
-  font-size: 16px;
-  --gradient: linear-gradient(to bottom, #2eadff, #3d83ff, #7e61ff);
-  --color: #32a6ff;
+  overflow: visible;
+  font-family: Inter, 'Segoe UI', Arial, sans-serif;
+  font-size: 14px;
+  --gradient: linear-gradient(to bottom, #51d3d4, #2eb7c7, #1f9fb7);
+  --color: #137f96;
   cursor: pointer;
+  border: 1px solid rgba(21, 128, 145, 0.2);
+  box-shadow: 0 10px 24px rgba(14, 91, 108, 0.1);
+  padding: 12px 12px 12px 16px;
+  gap: 7px;
 }
 
 .thesis-task-card.notification::before {
@@ -4752,7 +4759,7 @@ select {
   content: '';
   inset: 0.0625rem;
   border-radius: 0.9375rem;
-  background: #18181b;
+  background: linear-gradient(180deg, #f6fcfc 0%, #ecf7f8 100%);
   z-index: 2;
 }
 
@@ -4772,8 +4779,8 @@ select {
 }
 
 .thesis-task-card.notification.done {
-  --gradient: linear-gradient(to bottom, #2cd47f, #2aaf8e, #3f9db4);
-  --color: #56d7a3;
+  --gradient: linear-gradient(to bottom, #35cb99, #29b996, #2099b0);
+  --color: #0a7f64;
 }
 
 .thesis-task-card-head {
@@ -4783,44 +4790,58 @@ select {
   gap: 8px;
   position: relative;
   z-index: 5;
+  min-width: 0;
 }
 
 .thesis-task-card-head strong {
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.2;
   color: var(--color);
   margin: 0;
+  max-width: calc(100% - 72px);
+  overflow-wrap: anywhere;
 }
 
 .thesis-task-card-detail {
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
-  color: #99999d;
+  color: #4e6770;
   position: relative;
   z-index: 5;
+  overflow-wrap: anywhere;
+  max-height: 2.8em;
+  overflow: hidden;
 }
 
 .thesis-task-card-meta {
   display: grid;
   gap: 4px;
   font-size: 11px;
-  color: #b0b0b4;
+  color: #5e747b;
   position: relative;
   z-index: 5;
+  line-height: 1.35;
+  min-height: 32px;
 }
 
 .thesis-task-card-actions {
-  justify-content: space-between;
-  gap: 8px;
+  display: flex !important;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 6px;
   position: relative;
   z-index: 5;
+  flex-wrap: wrap;
+  margin-top: auto;
+  min-width: 0;
 }
 
 .thesis-task-card.notification .notititle {
   color: var(--color);
-  padding: 0.65rem 0.25rem 0.4rem 1.25rem;
-  font-weight: 500;
-  font-size: 1.1rem;
+  padding: 0;
+  font-weight: 700;
+  font-size: 1rem;
   transition: transform 300ms ease;
 }
 
@@ -4829,8 +4850,8 @@ select {
 }
 
 .thesis-task-card.notification .notibody {
-  color: #99999d;
-  padding: 0 1.25rem;
+  color: #4e6770;
+  padding: 0;
   transition: transform 300ms ease;
 }
 
@@ -4846,7 +4867,7 @@ select {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: radial-gradient(circle closest-side at center, #ffffff, transparent);
+  background: radial-gradient(circle closest-side at center, #66d5e2, transparent);
   opacity: 0;
   transition: opacity 300ms ease;
 }
@@ -4861,22 +4882,38 @@ select {
 
 .thesis-task-card.notification:hover .notiglow,
 .thesis-task-card.notification:hover .notiborderglow {
-  opacity: 0.1;
+  opacity: 0.08;
 }
 
 .thesis-task-card.notification .thesis-chip {
   z-index: 6;
+  min-height: 21px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .thesis-task-card.notification .ghost {
-  background: rgba(31, 31, 34, 0.6);
-  border-color: rgba(108, 142, 151, 0.3);
-  color: #c2d0d5;
+  background: rgba(236, 247, 248, 0.85);
+  border-color: rgba(19, 127, 150, 0.25);
+  color: #205a66;
+  font-size: 11px;
+  min-height: 24px;
+  padding: 3px 8px;
+  line-height: 1.2;
+  border-radius: 8px;
+  max-width: calc(50% - 4px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thesis-task-card.notification .ghost:hover {
-  border-color: rgba(72, 172, 194, 0.35);
-  color: #e2edf0;
+  border-color: rgba(37, 159, 177, 0.45);
+  color: #0e5666;
+  background: rgba(227, 244, 246, 0.95);
 }
 
 .thesis-task-empty {
@@ -5867,6 +5904,26 @@ select {
   color: #22363f;
 }
 
+.thesis-note-item {
+  align-items: start;
+}
+
+.thesis-note-item .todo-main {
+  gap: 5px;
+}
+
+.thesis-note-item .todo-main strong {
+  font-size: 13px;
+  color: #17323b;
+}
+
+.thesis-note-item .todo-main p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #486169;
+}
+
 .thesis-note-box textarea:focus {
   outline: none;
   border-color: #71d8ca;
@@ -6214,7 +6271,7 @@ select {
 
 .thesis-right-stage {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: 1fr;
   gap: 10px;
   min-height: 0;
   overflow: hidden;
@@ -6296,6 +6353,7 @@ select {
 
 .thesis-stage-grid--tasks .thesis-todo-panel {
   grid-column: span 9;
+  align-self: start;
 }
 
 .thesis-stage-grid--documents .thesis-overview-analytics,
@@ -6307,6 +6365,33 @@ select {
 
 .thesis-stage-grid--tasks .thesis-checklist-card {
   grid-column: span 3;
+  align-self: start;
+}
+
+.thesis-stage-grid--workbench {
+  align-content: start;
+  overflow: visible;
+  height: auto;
+  padding-right: 2px;
+}
+
+.thesis-stage-grid--workbench .thesis-notes-panel,
+.thesis-stage-grid--workbench .thesis-reco-card {
+  align-self: start;
+  overflow: auto;
+}
+
+.thesis-right-stage.workbench-open {
+  overflow: auto;
+}
+
+.thesis-right-stage.workbench-open .thesis-stage-grid--workbench {
+  min-height: 0;
+  overflow: visible;
+}
+
+.thesis-right-stage.workbench-open .thesis-stage-grid--workbench .page-card {
+  overflow: visible;
 }
 
 .thesis-stage-grid .page-card {

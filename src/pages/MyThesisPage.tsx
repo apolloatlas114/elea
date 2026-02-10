@@ -2,21 +2,22 @@
   Activity,
   BarChart3,
   CalendarDays,
+  CircleAlert,
   FileText,
   Filter,
   FolderOpen,
   LayoutDashboard,
   ListChecks,
-  Lock,
   NotepadText,
   Search,
   ShieldCheck,
   Sparkles,
   Target,
   ListTodo,
+  Mic,
   UploadCloud,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useStoredProfile } from '../hooks/useStoredProfile'
@@ -24,15 +25,17 @@ import { useStress } from '../hooks/useStress'
 import {
   loadAssessment,
   loadPlan,
+  loadThesisNotes,
   loadThesisChecklist,
   loadThesisDocuments,
   loadTodos,
+  replaceThesisNotes,
   replaceThesisChecklist,
   replaceThesisDocuments,
   replaceTodos,
 } from '../lib/supabaseData'
-import { STORAGE_KEYS, normalizeTodos, parseDeadlineDate, parseJson, todayIso } from '../lib/storage'
-import type { AssessmentResult, Plan, ThesisChecklistItem, ThesisDocument, TodoItem } from '../lib/storage'
+import { STORAGE_KEYS, normalizeThesisNotes, normalizeTodos, parseDeadlineDate, parseJson, todayIso } from '../lib/storage'
+import type { AssessmentResult, Plan, ThesisChecklistItem, ThesisDocument, ThesisNote, TodoItem } from '../lib/storage'
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 B'
@@ -81,12 +84,6 @@ const mergeChecklist = (stored: ThesisChecklistItem[] | null) => {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
-const defaultNotes = {
-  chapter: '',
-  method: '',
-  writing: '',
-}
-
 type DocFilter = 'all' | 'pdf' | 'doc' | 'docx'
 type TodoView = 'all' | 'today' | 'week' | 'overdue'
 type ThesisView = 'overview' | 'documents' | 'tasks' | 'quality' | 'workbench'
@@ -95,6 +92,15 @@ type TodoDraft = {
   detail: string
   date: string
   linkedDocumentId: string
+}
+type NoteDraft = {
+  title: string
+  content: string
+  subject: string
+  tags: string
+  priority: ThesisNote['priority']
+  linkedDocumentId: string
+  linkedTodoId: string
 }
 
 const MyThesisPage = () => {
@@ -112,7 +118,9 @@ const MyThesisPage = () => {
   const [assessment, setAssessment] = useState<AssessmentResult | null>(() =>
     parseJson(localStorage.getItem(STORAGE_KEYS.assessment), null)
   )
-  const [notes, setNotes] = useState(() => parseJson(localStorage.getItem(STORAGE_KEYS.thesisNotes), defaultNotes))
+  const [notes, setNotes] = useState<ThesisNote[]>(() =>
+    normalizeThesisNotes(parseJson(localStorage.getItem(STORAGE_KEYS.thesisNotes), []))
+  )
   const [docQuery, setDocQuery] = useState('')
   const [docFilter, setDocFilter] = useState<DocFilter>('all')
   const [todoView, setTodoView] = useState<TodoView>('all')
@@ -120,6 +128,16 @@ const MyThesisPage = () => {
   const [todoFormOpen, setTodoFormOpen] = useState(false)
   const [todoError, setTodoError] = useState('')
   const [selectedTodo, setSelectedTodo] = useState<TodoItem | null>(null)
+  const [noteError, setNoteError] = useState('')
+  const [noteDraft, setNoteDraft] = useState<NoteDraft>({
+    title: '',
+    content: '',
+    subject: '',
+    tags: '',
+    priority: 'medium',
+    linkedDocumentId: '',
+    linkedTodoId: '',
+  })
   const [todoDraft, setTodoDraft] = useState<TodoDraft>(() => ({
     title: '',
     detail: '',
@@ -127,6 +145,13 @@ const MyThesisPage = () => {
     linkedDocumentId: '',
   }))
   const [synced, setSynced] = useState(false)
+  const noteDocUploadRef = useRef<HTMLInputElement | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const mediaChunksRef = useRef<Blob[]>([])
+  const recordingTimeoutRef = useRef<number | null>(null)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
 
   const { user } = useAuth()
   const profile = useStoredProfile()
@@ -158,7 +183,11 @@ const MyThesisPage = () => {
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.thesisNotes, JSON.stringify(notes))
-  }, [notes])
+    if (!synced || !user) return
+    replaceThesisNotes(user.id, notes).catch((error) => {
+      console.error('Notizen speichern fehlgeschlagen', error)
+    })
+  }, [notes, synced, user])
 
   useEffect(() => {
     let active = true
@@ -167,18 +196,13 @@ const MyThesisPage = () => {
       return () => {}
     }
 
-    Promise.all([loadTodos(user.id), loadThesisDocuments(user.id), loadThesisChecklist(user.id)]).then(
-      ([remoteTodos, remoteDocs, remoteChecklist]) => {
+    Promise.all([loadTodos(user.id), loadThesisDocuments(user.id), loadThesisChecklist(user.id), loadThesisNotes(user.id)]).then(
+      ([remoteTodos, remoteDocs, remoteChecklist, remoteNotes]) => {
         if (!active) return
-        if (remoteTodos.length > 0) {
-          setTodos(normalizeTodos(remoteTodos))
-        }
-        if (remoteDocs.length > 0) {
-          setDocuments(remoteDocs)
-        }
-        if (remoteChecklist && remoteChecklist.length > 0) {
-          setChecklist(mergeChecklist(remoteChecklist))
-        }
+        setTodos(normalizeTodos(remoteTodos))
+        setDocuments(remoteDocs)
+        setChecklist(mergeChecklist(remoteChecklist))
+        setNotes(normalizeThesisNotes(remoteNotes))
         setSynced(true)
       }
     )
@@ -209,6 +233,36 @@ const MyThesisPage = () => {
     }
   }, [user?.id])
 
+  useEffect(() => {
+    return () => {
+      if (recordingTimeoutRef.current) {
+        window.clearTimeout(recordingTimeoutRef.current)
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user || !synced) return () => {}
+    const timer = window.setInterval(() => {
+      loadThesisNotes(user.id).then((remoteNotes) => {
+        if (!remoteNotes) return
+        const normalized = normalizeThesisNotes(remoteNotes)
+        setNotes((prev) => {
+          const prevSig = JSON.stringify(prev.map((note) => [note.id, note.updatedAt]))
+          const nextSig = JSON.stringify(normalized.map((note) => [note.id, note.updatedAt]))
+          return prevSig === nextSig ? prev : normalized
+        })
+      })
+    }, 12000)
+    return () => window.clearInterval(timer)
+  }, [user?.id, synced])
+
   const today = todayIso()
   const weekEnd = useMemo(() => {
     const date = new Date(today)
@@ -227,19 +281,9 @@ const MyThesisPage = () => {
   const eleaReviewedDocs = qualityLocked ? 0 : documents.length
   const eleaPendingDocs = Math.max(documents.length - eleaReviewedDocs, 0)
 
-  const notesTotalCount = useMemo(() => {
-    return Object.values(notes).reduce((sum, value) => {
-      const lines = value
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean).length
-      return sum + lines
-    }, 0)
-  }, [notes])
-
-  const notesUsedSections = useMemo(() => {
-    return Object.values(notes).filter((value) => value.trim().length > 0).length
-  }, [notes])
+  const notesTotalCount = notes.length
+  const notesHighPriority = notes.filter((note) => note.priority === 'high').length
+  const notesWithLinks = notes.filter((note) => note.linkedDocumentId || note.linkedTodoId).length
 
   const deadlineDaysLeft = useMemo(() => {
     const parsed = parseDeadlineDate(profile?.abgabedatum ?? null)
@@ -393,8 +437,8 @@ const MyThesisPage = () => {
     return new Map(documents.map((doc) => [doc.id, doc.name]))
   }, [documents])
 
-  const appendDocuments = (files: FileList | null) => {
-    if (!files || files.length === 0) return
+  const appendDocuments = (files: FileList | null): ThesisDocument[] => {
+    if (!files || files.length === 0) return []
     const uploadedAt = new Date().toISOString()
 
     const nextDocs: ThesisDocument[] = Array.from(files).map((file) => ({
@@ -409,11 +453,22 @@ const MyThesisPage = () => {
       uploadedAt,
     }))
 
+    let addedDocs: ThesisDocument[] = []
     setDocuments((prev) => {
       const existing = new Set(prev.map((doc) => documentKey(doc)))
       const unique = nextDocs.filter((doc) => !existing.has(documentKey(doc)))
+      addedDocs = unique
       return unique.length > 0 ? [...unique, ...prev] : prev
     })
+    return addedDocs
+  }
+
+  const uploadNoteDocument = (files: FileList | null) => {
+    const added = appendDocuments(files)
+    if (added.length > 0) {
+      setNoteDraft((prev) => ({ ...prev, linkedDocumentId: added[0].id }))
+      setNoteError('')
+    }
   }
 
   const removeDocument = (id: string) => {
@@ -465,6 +520,199 @@ const MyThesisPage = () => {
     setTodos((prev) => prev.filter((todo) => todo.id !== id))
   }
 
+  const resetNoteDraft = () => {
+    setNoteDraft({
+      title: '',
+      content: '',
+      subject: '',
+      tags: '',
+      priority: 'medium',
+      linkedDocumentId: '',
+      linkedTodoId: '',
+    })
+  }
+
+  const createNote = (inputType: ThesisNote['inputType'] = 'text') => {
+    if (!noteDraft.title.trim() || !noteDraft.content.trim()) {
+      setNoteError('Bitte Titel und Notizinhalt ausfüllen.')
+      return
+    }
+    const timestamp = new Date().toISOString()
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `note-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const tags = noteDraft.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+
+    const nextNote: ThesisNote = {
+      id,
+      title: noteDraft.title.trim(),
+      content: noteDraft.content.trim(),
+      subject: noteDraft.subject.trim(),
+      tags,
+      priority: noteDraft.priority,
+      linkedDocumentId: noteDraft.linkedDocumentId,
+      linkedTodoId: noteDraft.linkedTodoId,
+      inputType,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    setNotes((prev) => [nextNote, ...prev])
+    setNoteError('')
+    resetNoteDraft()
+  }
+
+  const removeNote = (id: string) => {
+    setNotes((prev) => prev.filter((note) => note.id !== id))
+  }
+
+  const updateNotePriority = (id: string, priority: ThesisNote['priority']) => {
+    setNotes((prev) =>
+      prev.map((note) => (note.id === id ? { ...note, priority, updatedAt: new Date().toISOString() } : note))
+    )
+  }
+
+  const startVoiceCapture = async () => {
+    if (isTranscribing) return
+
+    if (isRecording && mediaRecorderRef.current) {
+      if (recordingTimeoutRef.current) {
+        window.clearTimeout(recordingTimeoutRef.current)
+        recordingTimeoutRef.current = null
+      }
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      return
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setNoteError('Sprachaufnahme wird auf diesem Gerät nicht unterstützt. Bitte Text eingeben.')
+      return
+    }
+
+    try {
+      setNoteError('')
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaStreamRef.current = stream
+      mediaChunksRef.current = []
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+          ? 'audio/mp4'
+          : ''
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      mediaRecorderRef.current = recorder
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          mediaChunksRef.current.push(event.data)
+        }
+      }
+
+      recorder.onstop = async () => {
+        try {
+          if (recordingTimeoutRef.current) {
+            window.clearTimeout(recordingTimeoutRef.current)
+            recordingTimeoutRef.current = null
+          }
+          setIsTranscribing(true)
+          const audioType = recorder.mimeType || 'audio/webm'
+          const ext = audioType.includes('mp4') ? 'm4a' : 'webm'
+          const audioBlob = new Blob(mediaChunksRef.current, { type: audioType })
+          if (audioBlob.size === 0) {
+            setNoteError('Keine Audioaufnahme erkannt.')
+            return
+          }
+
+          const formData = new FormData()
+          formData.append('file', audioBlob, `note-${Date.now()}.${ext}`)
+
+          const endpoint = import.meta.env.VITE_TRANSCRIBE_ENDPOINT || '/api/transcribe'
+          let transcript = ''
+
+          try {
+            const response = await fetch(endpoint, { method: 'POST', body: formData })
+            const payload = await response.json().catch(() => ({}))
+            if (!response.ok) {
+              throw new Error(typeof payload?.error === 'string' ? payload.error : 'API-Transkription fehlgeschlagen.')
+            }
+            transcript = typeof payload?.text === 'string' ? payload.text.trim() : ''
+          } catch {
+            const groqKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
+            const groqModel = (import.meta.env.VITE_GROQ_TRANSCRIPTION_MODEL as string | undefined) || 'whisper-large-v3-turbo'
+            if (!groqKey) {
+              throw new Error(
+                'Kein Transkript: API-Route nicht erreichbar und VITE_GROQ_API_KEY fehlt in .env.local.'
+              )
+            }
+            const groqForm = new FormData()
+            groqForm.append('file', audioBlob, `note-${Date.now()}.${ext}`)
+            groqForm.append('model', groqModel)
+            groqForm.append('language', 'de')
+            groqForm.append('response_format', 'json')
+
+            const groqResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${groqKey}`,
+              },
+              body: groqForm,
+            })
+            const groqPayload = await groqResponse.json().catch(() => ({}))
+            if (!groqResponse.ok) {
+              throw new Error(
+                typeof groqPayload?.error?.message === 'string'
+                  ? groqPayload.error.message
+                  : 'Groq-Transkription fehlgeschlagen.'
+              )
+            }
+            transcript = typeof groqPayload?.text === 'string' ? groqPayload.text.trim() : ''
+          }
+
+          if (!transcript) {
+            setNoteError('Keine Sprache erkannt. Bitte erneut aufnehmen.')
+            return
+          }
+
+          setNoteDraft((prev) => ({
+            ...prev,
+            content: prev.content ? `${prev.content}\n${transcript}` : transcript,
+          }))
+          setNoteError('')
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Transkription fehlgeschlagen.'
+          setNoteError(`${message} Bitte erneut versuchen oder Text direkt eingeben.`)
+        } finally {
+          setIsTranscribing(false)
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+            mediaStreamRef.current = null
+          }
+          mediaRecorderRef.current = null
+          mediaChunksRef.current = []
+          setIsRecording(false)
+        }
+      }
+
+      recorder.start()
+      setIsRecording(true)
+      setNoteError('Aufnahme läuft... tippe erneut auf Sprach-Input zum Stoppen.')
+      recordingTimeoutRef.current = window.setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop()
+        }
+      }, 30000)
+    } catch {
+      setNoteError('Mikrofonzugriff nicht möglich. Bitte Berechtigung prüfen.')
+      setIsRecording(false)
+    }
+  }
+
   const toggleChecklist = (id: string) => {
     setChecklist((prev) => prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item)))
   }
@@ -509,7 +757,7 @@ const MyThesisPage = () => {
       icon: <ShieldCheck size={15} />,
       meta: qualityLocked ? 'Locked' : `${eleaScoreValue}/10`,
     },
-    { id: 'workbench', label: 'Workbench', icon: <NotepadText size={15} />, meta: `${notesTotalCount}` },
+    { id: 'workbench', label: 'Notizen', icon: <NotepadText size={15} />, meta: `${notesTotalCount}` },
   ]
 
   return (
@@ -544,22 +792,7 @@ const MyThesisPage = () => {
         </div>
       </aside>
 
-      <main className={`thesis-right-stage ${activeView === 'overview' ? 'no-stage-head' : ''}`}>
-        {activeView !== 'overview' && (
-          <header className="page-card thesis-surface thesis-stage-head">
-            <div>
-              <p className="thesis-kicker">My Thesis Dashboard</p>
-              <h2>{viewItems.find((item) => item.id === activeView)?.label}</h2>
-            </div>
-            <div className="thesis-stage-head-kpis">
-              <span className="thesis-chip">Fortschritt {progressValue}%</span>
-              <span className="thesis-chip">Heute {todosToday} Aufgaben</span>
-              <span className={`thesis-chip ${qualityLocked ? 'warn' : 'ok'}`}>
-                Elea Score {qualityLocked ? 'Locked' : `${eleaScoreValue}/10`}
-              </span>
-            </div>
-          </header>
-        )}
+      <main className={`thesis-right-stage ${activeView === 'workbench' ? 'workbench-open' : ''}`}>
 
         {activeView === 'overview' && (
           <section className="thesis-stage-grid thesis-stage-grid--overview thesis-pro-grid">
@@ -570,7 +803,7 @@ const MyThesisPage = () => {
                   <h3>Alles Wichtige auf einen Blick</h3>
                 </div>
                 <button className="ghost" type="button" onClick={() => setActiveView('workbench')}>
-                  Workbench öffnen
+                  Notizen öffnen
                 </button>
               </div>
 
@@ -797,16 +1030,16 @@ const MyThesisPage = () => {
                   <strong>{notesTotalCount}</strong>
                 </div>
                 <div className="thesis-pro-stat-item">
-                  <span>Bereiche mit Inhalt</span>
-                  <strong>{notesUsedSections}/3</strong>
+                  <span>Hohe Priorität</span>
+                  <strong>{notesHighPriority}</strong>
                 </div>
                 <div className="thesis-pro-stat-item">
-                  <span>Zuletzt geändert</span>
-                  <strong>{notesTotalCount > 0 ? 'Aktiv' : 'Noch leer'}</strong>
+                  <span>Mit Verknüpfung</span>
+                  <strong>{notesWithLinks}</strong>
                 </div>
               </div>
               <div className="thesis-pro-card-note">
-                Notizen werden automatisch gespeichert und im Workbench-Bereich bearbeitet.
+                Notizen werden automatisch gespeichert und zwischen Geräten synchronisiert.
               </div>
             </article>
           </section>
@@ -1075,7 +1308,7 @@ const MyThesisPage = () => {
                             updateTodo(todo.id, { done: !todo.done })
                           }}
                         >
-                          {todo.done ? 'Als offen markieren' : 'Als erledigt markieren'}
+                          {todo.done ? 'Offen' : 'Erledigt'}
                         </button>
                         <button
                           className="ghost todo-remove"
@@ -1085,7 +1318,7 @@ const MyThesisPage = () => {
                             removeTodo(todo.id)
                           }}
                         >
-                          Entfernen
+                          Löschen
                         </button>
                       </div>
                     </article>
@@ -1255,72 +1488,176 @@ const MyThesisPage = () => {
             <article className="page-card thesis-surface thesis-notes-panel">
               <div className="thesis-panel-head">
                 <h2>
-                  <NotepadText size={16} /> Notizen-Speicher
+                  <NotepadText size={16} /> Notizen
                 </h2>
-                <span>Autosave</span>
+                <span>Live Sync</span>
+              </div>
+              <p className="thesis-subline">Hier kannst du Notizen erstellen, priorisieren und direkt mit Aufgaben oder Dokumenten verknüpfen.</p>
+              <div className="thesis-actions-row">
+                <button className="ghost" type="button" onClick={startVoiceCapture} disabled={isTranscribing}>
+                  <Mic size={12} /> {isRecording ? 'Aufnahme stoppen' : isTranscribing ? 'Transkribiere...' : 'Sprach-Input'}
+                </button>
+                <button className="ghost" type="button" onClick={() => noteDocUploadRef.current?.click()}>
+                  <UploadCloud size={12} /> Dokument hochladen
+                </button>
+                <input
+                  ref={noteDocUploadRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  className="upload-input"
+                  onChange={(event) => {
+                    uploadNoteDocument(event.target.files)
+                    event.target.value = ''
+                  }}
+                />
               </div>
               <div className="thesis-note-grid">
-                <label className="thesis-note-box" htmlFor="notes-chapter">
-                  <span>Kapitel-Fokus</span>
-                  <textarea
-                    id="notes-chapter"
-                    value={notes.chapter}
-                    onChange={(event) => setNotes((prev) => ({ ...prev, chapter: event.target.value }))}
-                    placeholder="Was ist das nächste konkrete Kapitelziel?"
+                <label className="thesis-note-box" htmlFor="note-title">
+                  <span>Titel</span>
+                  <input
+                    id="note-title"
+                    className="todo-input"
+                    value={noteDraft.title}
+                    onChange={(event) => setNoteDraft((prev) => ({ ...prev, title: event.target.value }))}
+                    placeholder="z. B. Forschungsfrage schärfen"
                   />
                 </label>
-                <label className="thesis-note-box" htmlFor="notes-method">
-                  <span>Methodik To-dos</span>
+                <label className="thesis-note-box" htmlFor="note-content">
+                  <span>Inhalt</span>
                   <textarea
-                    id="notes-method"
-                    value={notes.method}
-                    onChange={(event) => setNotes((prev) => ({ ...prev, method: event.target.value }))}
-                    placeholder="Welche Methode/Statistik muss als nächstes sauber sein?"
+                    id="note-content"
+                    value={noteDraft.content}
+                    onChange={(event) => setNoteDraft((prev) => ({ ...prev, content: event.target.value }))}
+                    placeholder="Notiz in Sekunden erfassen..."
                   />
                 </label>
-                <label className="thesis-note-box" htmlFor="notes-writing">
-                  <span>Schreib-Reminder</span>
-                  <textarea
-                    id="notes-writing"
-                    value={notes.writing}
-                    onChange={(event) => setNotes((prev) => ({ ...prev, writing: event.target.value }))}
-                    placeholder="Formulierungen, Quellen, offene Fragen..."
-                  />
+                <div className="thesis-task-create-row">
+                  <label className="thesis-note-box" htmlFor="note-subject">
+                    <span>Fach</span>
+                    <input
+                      id="note-subject"
+                      className="todo-input"
+                      value={noteDraft.subject}
+                      onChange={(event) => setNoteDraft((prev) => ({ ...prev, subject: event.target.value }))}
+                      placeholder="z. B. Empirische Methoden"
+                    />
+                  </label>
+                  <label className="thesis-note-box" htmlFor="note-priority">
+                    <span>Priorität</span>
+                    <select
+                      id="note-priority"
+                      className="todo-date thesis-task-select"
+                      value={noteDraft.priority}
+                      onChange={(event) =>
+                        setNoteDraft((prev) => ({ ...prev, priority: event.target.value as ThesisNote['priority'] }))
+                      }
+                    >
+                      <option value="high">Hoch</option>
+                      <option value="medium">Mittel</option>
+                      <option value="low">Niedrig</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="thesis-task-create-row">
+                  <label className="thesis-note-box" htmlFor="note-tags">
+                    <span>Tags (Komma getrennt)</span>
+                    <input
+                      id="note-tags"
+                      className="todo-input"
+                      value={noteDraft.tags}
+                      onChange={(event) => setNoteDraft((prev) => ({ ...prev, tags: event.target.value }))}
+                      placeholder="methodik, statistik, deadline"
+                    />
+                  </label>
+                  <label className="thesis-note-box" htmlFor="note-link-doc">
+                    <span>Dokument verknüpfen</span>
+                    <select
+                      id="note-link-doc"
+                      className="todo-date thesis-task-select"
+                      value={noteDraft.linkedDocumentId}
+                      onChange={(event) => setNoteDraft((prev) => ({ ...prev, linkedDocumentId: event.target.value }))}
+                    >
+                      <option value="">Kein Dokument</option>
+                      {documents.map((doc) => (
+                        <option key={doc.id} value={doc.id}>
+                          {doc.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label className="thesis-note-box" htmlFor="note-link-task">
+                  <span>Aufgabe verknüpfen</span>
+                  <select
+                    id="note-link-task"
+                    className="todo-date thesis-task-select"
+                    value={noteDraft.linkedTodoId}
+                    onChange={(event) => setNoteDraft((prev) => ({ ...prev, linkedTodoId: event.target.value }))}
+                  >
+                    <option value="">Keine Aufgabe</option>
+                    {todos.map((todo) => (
+                      <option key={todo.id} value={todo.id}>
+                        {todo.title}
+                      </option>
+                    ))}
+                  </select>
                 </label>
+              </div>
+              {noteError && <div className="todo-empty thesis-task-error">{noteError}</div>}
+              <div className="thesis-actions-row">
+                <button className="primary" type="button" onClick={() => createNote('text')}>
+                  Notiz speichern
+                </button>
+                <button className="ghost" type="button" onClick={resetNoteDraft}>
+                  Zurücksetzen
+                </button>
               </div>
             </article>
 
             <article className="page-card thesis-surface thesis-reco-card">
               <div className="thesis-panel-head">
                 <h2>
-                  <Target size={14} /> Next Best Actions
+                  <CircleAlert size={14} /> Notizen-Feed
                 </h2>
-                <span>Priorisiert</span>
+                <span>{notes.length} Einträge</span>
               </div>
-              <ul className="thesis-reco-list">
-                {recommendations.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-              <div className="thesis-actions-row">
-                <button
-                  className="primary"
-                  type="button"
-                  onClick={() => {
-                    setActiveView('tasks')
-                    openTodoForm()
-                  }}
-                >
-                  Als Aufgabe anlegen
-                </button>
-                <button className="ghost" type="button" onClick={() => navigate('/coaching')}>
-                  Coaching öffnen
-                </button>
-              </div>
-              {qualityLocked && (
-                <p className="thesis-lock-note">
-                  <Lock size={12} /> Echter KI-Qualitätscheck wird mit Basic oder Pro freigeschaltet.
-                </p>
+              {notes.length === 0 ? (
+                <div className="todo-empty thesis-task-empty">
+                  Noch keine Notizen vorhanden. Erstelle deine erste Notiz per Text oder Sprach-Input.
+                </div>
+              ) : (
+                <div className="thesis-doc-list">
+                  {notes.map((note) => (
+                    <article key={note.id} className="todo-item thesis-note-item">
+                      <div className="todo-main">
+                        <strong>{note.title}</strong>
+                        <p>{note.content}</p>
+                        <div className="thesis-task-card-meta">
+                          <span>Fach: {note.subject || 'Nicht gesetzt'}</span>
+                          <span>Tags: {note.tags.length > 0 ? note.tags.join(', ') : 'Keine'}</span>
+                          <span>
+                            Verknüpfung: {note.linkedDocumentId ? 'Dokument' : note.linkedTodoId ? 'Aufgabe' : 'Keine'}
+                          </span>
+                          <span>Eingabe: {note.inputType === 'voice' ? 'Sprache' : 'Text'}</span>
+                        </div>
+                      </div>
+                      <div className="todo-controls thesis-doc-actions">
+                        <button
+                          className="ghost"
+                          type="button"
+                          onClick={() =>
+                            updateNotePriority(note.id, note.priority === 'high' ? 'medium' : note.priority === 'medium' ? 'low' : 'high')
+                          }
+                        >
+                          Priorität: {note.priority}
+                        </button>
+                        <button className="ghost todo-remove" type="button" onClick={() => removeNote(note.id)}>
+                          Löschen
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
               )}
             </article>
           </section>
@@ -1331,3 +1668,6 @@ const MyThesisPage = () => {
 }
 
 export default MyThesisPage
+
+
+
