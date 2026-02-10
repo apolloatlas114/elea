@@ -6375,6 +6375,19 @@ select {
   align-self: start;
 }
 
+.thesis-study-result {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.thesis-study-result-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
 .thesis-dropzone {
   border: 1px dashed rgba(34, 76, 63, 0.35);
   border-radius: 14px;

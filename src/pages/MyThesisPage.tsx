@@ -1893,26 +1893,27 @@ const MyThesisPage = () => {
                 <span>{activeStudyMaterial ? activeStudyMaterial.name : 'Bitte PDF auswaehlen'}</span>
               </div>
 
-              {studyProgress && (
-                <div className="thesis-study-progress">
-                  <div className="thesis-study-progress-head">
-                    <span>{studyProgress.label}</span>
-                    <strong>{studyProgress.percent}%</strong>
+              <div className="thesis-study-result-body">
+                {studyProgress && (
+                  <div className="thesis-study-progress">
+                    <div className="thesis-study-progress-head">
+                      <span>{studyProgress.label}</span>
+                      <strong>{studyProgress.percent}%</strong>
+                    </div>
+                    <div className="score-bar">
+                      <div className="score-fill" style={{ width: `${studyProgress.percent}%` }} />
+                    </div>
                   </div>
-                  <div className="score-bar">
-                    <div className="score-fill" style={{ width: `${studyProgress.percent}%` }} />
-                  </div>
-                </div>
-              )}
+                )}
 
-              {!activeStudyMaterial ? (
-                <div className="todo-empty thesis-task-empty">Waehle links eine PDF aus oder lade eine hoch.</div>
-              ) : activeStudyMaterial.status === 'processing' ? (
-                <div className="todo-empty thesis-task-empty">Groq analysiert... Das kann kurz dauern.</div>
-              ) : activeStudyMaterial.status === 'error' ? (
-                <div className="todo-empty thesis-task-error">{activeStudyMaterial.error || 'Analyse fehlgeschlagen.'}</div>
-              ) : (
-                <>
+                {!activeStudyMaterial ? (
+                  <div className="todo-empty thesis-task-empty">Waehle links eine PDF aus oder lade eine hoch.</div>
+                ) : activeStudyMaterial.status === 'processing' ? (
+                  <div className="todo-empty thesis-task-empty">Groq analysiert... Das kann kurz dauern.</div>
+                ) : activeStudyMaterial.status === 'error' ? (
+                  <div className="todo-empty thesis-task-error">{activeStudyMaterial.error || 'Analyse fehlgeschlagen.'}</div>
+                ) : (
+                  <>
                   <div className="thesis-study-tabs">
                     <button
                       type="button"
@@ -2138,6 +2139,7 @@ const MyThesisPage = () => {
                   )}
                 </>
               )}
+              </div>
             </article>
           </section>
         )}
