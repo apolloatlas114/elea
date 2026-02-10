@@ -4730,18 +4730,50 @@ select {
   padding-right: 4px;
 }
 
-.thesis-task-card {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid rgba(98, 128, 137, 0.22);
-  border-radius: 14px;
-  background: rgba(252, 255, 255, 0.96);
+.thesis-task-card.notification {
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+  position: relative;
+  width: 100%;
+  min-height: 8rem;
+  background: #29292c;
+  border-radius: 1rem;
+  overflow: hidden;
+  font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+  font-size: 16px;
+  --gradient: linear-gradient(to bottom, #2eadff, #3d83ff, #7e61ff);
+  --color: #32a6ff;
+  cursor: pointer;
 }
 
-.thesis-task-card.done {
-  background: rgba(238, 251, 248, 0.94);
-  border-color: rgba(56, 171, 157, 0.3);
+.thesis-task-card.notification::before {
+  position: absolute;
+  content: '';
+  inset: 0.0625rem;
+  border-radius: 0.9375rem;
+  background: #18181b;
+  z-index: 2;
+}
+
+.thesis-task-card.notification::after {
+  position: absolute;
+  content: '';
+  width: 0.25rem;
+  inset: 0.65rem auto 0.65rem 0.5rem;
+  border-radius: 0.125rem;
+  background: var(--gradient);
+  transition: transform 300ms ease;
+  z-index: 4;
+}
+
+.thesis-task-card.notification:hover::after {
+  transform: translateX(0.15rem);
+}
+
+.thesis-task-card.notification.done {
+  --gradient: linear-gradient(to bottom, #2cd47f, #2aaf8e, #3f9db4);
+  --color: #56d7a3;
 }
 
 .thesis-task-card-head {
@@ -4749,30 +4781,115 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  position: relative;
+  z-index: 5;
 }
 
 .thesis-task-card-head strong {
   font-size: 13px;
-  color: #1f2f37;
+  color: var(--color);
+  margin: 0;
 }
 
 .thesis-task-card-detail {
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
-  color: #5d737a;
+  color: #99999d;
+  position: relative;
+  z-index: 5;
 }
 
 .thesis-task-card-meta {
   display: grid;
   gap: 4px;
   font-size: 11px;
-  color: #567079;
+  color: #b0b0b4;
+  position: relative;
+  z-index: 5;
 }
 
 .thesis-task-card-actions {
   justify-content: space-between;
   gap: 8px;
+  position: relative;
+  z-index: 5;
+}
+
+.thesis-task-card.notification .notititle {
+  color: var(--color);
+  padding: 0.65rem 0.25rem 0.4rem 1.25rem;
+  font-weight: 500;
+  font-size: 1.1rem;
+  transition: transform 300ms ease;
+}
+
+.thesis-task-card.notification:hover .notititle {
+  transform: translateX(0.15rem);
+}
+
+.thesis-task-card.notification .notibody {
+  color: #99999d;
+  padding: 0 1.25rem;
+  transition: transform 300ms ease;
+}
+
+.thesis-task-card.notification:hover .notibody {
+  transform: translateX(0.25rem);
+}
+
+.thesis-task-card.notification .notiglow,
+.thesis-task-card.notification .notiborderglow {
+  position: absolute;
+  width: 20rem;
+  height: 20rem;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle closest-side at center, #ffffff, transparent);
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.thesis-task-card.notification .notiglow {
+  z-index: 3;
+}
+
+.thesis-task-card.notification .notiborderglow {
+  z-index: 1;
+}
+
+.thesis-task-card.notification:hover .notiglow,
+.thesis-task-card.notification:hover .notiborderglow {
+  opacity: 0.1;
+}
+
+.thesis-task-card.notification .thesis-chip {
+  z-index: 6;
+}
+
+.thesis-task-card.notification .ghost {
+  background: rgba(31, 31, 34, 0.6);
+  border-color: rgba(108, 142, 151, 0.3);
+  color: #c2d0d5;
+}
+
+.thesis-task-card.notification .ghost:hover {
+  border-color: rgba(72, 172, 194, 0.35);
+  color: #e2edf0;
+}
+
+.thesis-task-empty {
+  grid-column: 1 / -1;
+}
+
+.thesis-task-modal p {
+  margin: 0 0 8px;
+  color: #4a5f68;
+}
+
+.thesis-task-modal p strong {
+  color: #1b2d35;
 }
 
 .thesis-side-stack {
@@ -6177,11 +6294,19 @@ select {
   grid-column: span 8;
 }
 
+.thesis-stage-grid--tasks .thesis-todo-panel {
+  grid-column: span 9;
+}
+
 .thesis-stage-grid--documents .thesis-overview-analytics,
 .thesis-stage-grid--tasks .thesis-checklist-card,
 .thesis-stage-grid--quality .thesis-overview-analytics,
 .thesis-stage-grid--workbench .thesis-reco-card {
   grid-column: span 4;
+}
+
+.thesis-stage-grid--tasks .thesis-checklist-card {
+  grid-column: span 3;
 }
 
 .thesis-stage-grid .page-card {

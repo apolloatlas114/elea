@@ -119,6 +119,7 @@ const MyThesisPage = () => {
   const [activeView, setActiveView] = useState<ThesisView>('overview')
   const [todoFormOpen, setTodoFormOpen] = useState(false)
   const [todoError, setTodoError] = useState('')
+  const [selectedTodo, setSelectedTodo] = useState<TodoItem | null>(null)
   const [todoDraft, setTodoDraft] = useState<TodoDraft>(() => ({
     title: '',
     detail: '',
@@ -1035,15 +1036,29 @@ const MyThesisPage = () => {
 
               <div className="thesis-task-grid">
                 {filteredTodos.length === 0 ? (
-                  <div className="todo-empty">Keine Aufgaben in dieser Ansicht.</div>
+                  <div className="todo-empty thesis-task-empty">Keine Aufgaben in dieser Ansicht.</div>
                 ) : (
                   filteredTodos.map((todo) => (
-                    <article key={todo.id} className={`thesis-task-card ${todo.done ? 'done' : ''}`}>
+                    <article
+                      key={todo.id}
+                      className={`thesis-task-card notification ${todo.done ? 'done' : ''}`}
+                      onClick={() => setSelectedTodo(todo)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedTodo(todo)
+                        }
+                      }}
+                    >
+                      <div className="notiglow" />
+                      <div className="notiborderglow" />
                       <div className="thesis-task-card-head">
-                        <strong>{todo.title}</strong>
+                        <strong className="notititle">{todo.title}</strong>
                         <span className={`thesis-chip ${todo.done ? 'ok' : 'warn'}`}>{todo.done ? 'Erledigt' : 'Offen'}</span>
                       </div>
-                      {todo.detail && <p className="thesis-task-card-detail">{todo.detail}</p>}
+                      {todo.detail && <p className="thesis-task-card-detail notibody">{todo.detail}</p>}
                       <div className="thesis-task-card-meta">
                         <span>Deadline: {todo.date}</span>
                         <span>
@@ -1052,10 +1067,24 @@ const MyThesisPage = () => {
                         </span>
                       </div>
                       <div className="todo-controls thesis-task-card-actions">
-                        <button className="ghost" type="button" onClick={() => updateTodo(todo.id, { done: !todo.done })}>
+                        <button
+                          className="ghost"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            updateTodo(todo.id, { done: !todo.done })
+                          }}
+                        >
                           {todo.done ? 'Als offen markieren' : 'Als erledigt markieren'}
                         </button>
-                        <button className="ghost todo-remove" type="button" onClick={() => removeTodo(todo.id)}>
+                        <button
+                          className="ghost todo-remove"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            removeTodo(todo.id)
+                          }}
+                        >
                           Entfernen
                         </button>
                       </div>
@@ -1068,7 +1097,7 @@ const MyThesisPage = () => {
             <article className="page-card thesis-surface thesis-checklist-card">
               <div className="thesis-panel-head">
                 <h2>
-                  <ListChecks size={14} /> Submission Checklist
+                  <ListChecks size={14} /> Checkliste
                 </h2>
                 <span>
                   {checklistDone}/{checklist.length}
@@ -1090,6 +1119,32 @@ const MyThesisPage = () => {
               </div>
             </article>
           </section>
+        )}
+
+        {selectedTodo && (
+          <div className="modal-backdrop" onClick={() => setSelectedTodo(null)}>
+            <div className="modal thesis-task-modal" onClick={(event) => event.stopPropagation()}>
+              <h2>{selectedTodo.title}</h2>
+              <p>
+                <strong>Status:</strong> {selectedTodo.done ? 'Erledigt' : 'Offen'}
+              </p>
+              <p>
+                <strong>Deadline:</strong> {selectedTodo.date}
+              </p>
+              <p>
+                <strong>Beschreibung:</strong> {selectedTodo.detail || 'Keine Beschreibung'}
+              </p>
+              <p>
+                <strong>Verlinktes Dokument:</strong>{' '}
+                {selectedTodo.linkedDocumentId ? documentNameById.get(selectedTodo.linkedDocumentId) || 'Nicht gefunden' : 'Keins'}
+              </p>
+              <div className="modal-actions">
+                <button className="primary" type="button" onClick={() => setSelectedTodo(null)}>
+                  Schließen
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {activeView === 'quality' && (
