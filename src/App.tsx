@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import LoadingTicker from './components/LoadingTicker'
 import { PanicModal } from './components/PanicModal'
 import { useAuth } from './context/AuthContext'
 import { recordSecurityEvent, trackActivityEvent } from './lib/adminData'
+import { buildReferralShareLink, captureReferralCodeFromSearch, claimPendingReferral, copyTextToClipboard, ensureOwnReferralCode } from './lib/referrals'
 import { useStress } from './hooks/useStress'
 import { isAdminEmail } from './lib/admin'
 import AdminDashboardPage from './pages/AdminDashboardPage'
@@ -46,6 +47,9 @@ const AppLayout = () => {
   const [menuOpen, setMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [stressSaved, setStressSaved] = useState(false)
+  const [referralLink, setReferralLink] = useState('')
+  const [referralFeedback, setReferralFeedback] = useState<string | null>(null)
+  const [referralCtaLabel, setReferralCtaLabel] = useState('Jetzt sparen')
   const userMenuRef = useRef<HTMLDivElement | null>(null)
   const stress = useStress(user?.id)
   const navItems = [
@@ -107,6 +111,54 @@ const AppLayout = () => {
   }, [stressSaved])
 
   useEffect(() => {
+    const captured = captureReferralCodeFromSearch(location.search)
+    if (!captured) return
+    setReferralFeedback(`Einladungs-Code ${captured} gespeichert.`)
+  }, [location.search])
+
+  useEffect(() => {
+    if (!user) return
+    let active = true
+
+    const syncReferralState = async () => {
+      const ownCode = await ensureOwnReferralCode(user.id)
+      if (!active) return
+      setReferralLink(buildReferralShareLink(ownCode))
+
+      const claim = await claimPendingReferral(user.id)
+      if (!active) return
+
+      if (claim.status === 'claimed') {
+        setReferralFeedback('Empfehlung verknÃ¼pft. 10% Rabatt werden vor dem Checkout vorgemerkt.')
+      } else if (claim.status === 'already_claimed') {
+        setReferralFeedback('Referral ist bereits mit deinem Account verknÃ¼pft.')
+      } else if (claim.status === 'self_referral') {
+        setReferralFeedback('Eigene Referral-Links kÃ¶nnen nicht selbst eingelÃ¶st werden.')
+      } else if (claim.status === 'invalid_code') {
+        setReferralFeedback('Referral-Code konnte nicht verknÃ¼pft werden.')
+      }
+    }
+
+    void syncReferralState()
+
+    return () => {
+      active = false
+    }
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!referralFeedback) return
+    const timer = window.setTimeout(() => setReferralFeedback(null), 4200)
+    return () => window.clearTimeout(timer)
+  }, [referralFeedback])
+
+  useEffect(() => {
+    if (referralCtaLabel === 'Jetzt sparen') return
+    const timer = window.setTimeout(() => setReferralCtaLabel('Jetzt sparen'), 1800)
+    return () => window.clearTimeout(timer)
+  }, [referralCtaLabel])
+
+  useEffect(() => {
     if (!user) return
     void trackActivityEvent({
       eventType: 'page_view',
@@ -159,6 +211,41 @@ const AppLayout = () => {
   const handleStressSave = () => {
     const saved = stress.save()
     if (saved) setStressSaved(true)
+  }
+
+  const handleReferralShare = async () => {
+    if (!user) {
+      setReferralFeedback('Bitte zuerst einloggen, um deinen Referral-Link zu teilen.')
+      return
+    }
+
+    const ownCode = await ensureOwnReferralCode(user.id)
+    const link = referralLink || buildReferralShareLink(ownCode)
+    setReferralLink(link)
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'elea Empfehlung',
+          text: 'Starte mit meinem elea Link und sichere dir 10% Rabatt auf BASIC oder PRO.',
+          url: link,
+        })
+        setReferralCtaLabel('Geteilt')
+        setReferralFeedback('Referral-Link erfolgreich geteilt.')
+        return
+      } catch {
+        // Fallback to copy on cancelled/failed share
+      }
+    }
+
+    const copied = await copyTextToClipboard(link)
+    if (copied) {
+      setReferralCtaLabel('Link kopiert')
+      setReferralFeedback('Referral-Link kopiert. Jetzt direkt weiterleiten.')
+      return
+    }
+
+    setReferralFeedback(`Referral-Link: ${link}`)
   }
 
   const renderNavIcon = (icon: string) => {
@@ -269,7 +356,7 @@ const AppLayout = () => {
             type="button"
             aria-expanded={menuOpen}
             aria-controls="primary-nav"
-            aria-label={menuOpen ? 'Navigation schließen' : 'Navigation öffnen'}
+            aria-label={menuOpen ? 'Navigation schlieÃŸen' : 'Navigation Ã¶ffnen'}
             onClick={() => {
               setMenuOpen((prev) => !prev)
               setUserMenuOpen(false)
@@ -297,9 +384,9 @@ const AppLayout = () => {
               aria-label="Mental Health speichern"
               title="Mental Health speichern"
             >
-              💾
+              ðŸ’¾
             </button>
-            <span className={`stress-save-ok ${stressSaved ? 'show' : ''}`}>✓</span>
+            <span className={`stress-save-ok ${stressSaved ? 'show' : ''}`}>âœ“</span>
             {!stress.canSave && <span className="limit-note">{stress.dailyLimit}/Tag erreicht</span>}
           </div>
 
@@ -316,7 +403,7 @@ const AppLayout = () => {
             <button
               className="avatar-toggle"
               type="button"
-              aria-label="User-Menü"
+              aria-label="User-MenÃ¼"
               aria-expanded={userMenuOpen}
               onClick={() => setUserMenuOpen((prev) => !prev)}
             >
@@ -335,7 +422,7 @@ const AppLayout = () => {
                 to="/payments"
                 onClick={() => setUserMenuOpen(false)}
               >
-                Pläne
+                PlÃ¤ne
               </NavLink>
             </div>
           </div>
@@ -343,7 +430,7 @@ const AppLayout = () => {
       </header>
 
       {menuOpen && (
-        <button className="nav-backdrop" type="button" aria-label="Menü schließen" onClick={() => setMenuOpen(false)} />
+        <button className="nav-backdrop" type="button" aria-label="MenÃ¼ schlieÃŸen" onClick={() => setMenuOpen(false)} />
       )}
 
       <Outlet />
@@ -357,7 +444,7 @@ const AppLayout = () => {
         </button>
 
         <div className="referral-wrap">
-          <button className="referral-button" type="button" aria-label="20 Prozent Rabatt">
+          <button className="referral-button" type="button" aria-label="10 Prozent Rabatt">
             <span className="referral-button-glow" aria-hidden="true" />
             <span className="referral-label">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -370,7 +457,7 @@ const AppLayout = () => {
                   strokeWidth="1.8"
                 />
               </svg>
-              <span>20% Rabatt</span>
+              <span>10% Rabatt</span>
             </span>
           </button>
 
@@ -380,10 +467,11 @@ const AppLayout = () => {
               Wenn du elea weiterempfiehlst und dein Freund BASIC oder PRO bucht, erhaltet ihr beide 10 % Rabatt auf
               BASIC oder PRO.
             </p>
-            <div className="referral-cta">
+            <button className="referral-cta referral-cta-button" type="button" onClick={handleReferralShare}>
               <span aria-hidden="true">➜</span>
-              <span>Jetzt sparen</span>
-            </div>
+              <span>{referralCtaLabel}</span>
+            </button>
+            {referralFeedback && <div className="referral-feedback">{referralFeedback}</div>}
             <span className="referral-tip" aria-hidden="true" />
           </div>
         </div>
@@ -403,7 +491,7 @@ const ProtectedRoute = () => {
         <LoadingTicker
           className="page-loader"
           prefix="Lade"
-          words={['Session', 'Zugänge', 'Sicherheit', 'Profil', 'Dashboard']}
+          words={['Session', 'ZugÃ¤nge', 'Sicherheit', 'Profil', 'Dashboard']}
         />
       </div>
     )
@@ -436,3 +524,4 @@ const AdminRoute = () => {
 
   return <AdminDashboardPage />
 }
+

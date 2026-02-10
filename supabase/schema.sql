@@ -356,3 +356,267 @@ create policy "thesis_docs_admin_read_policy" on thesis_documents
       where lower(au.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
     )
   );
+
+create table if not exists referral_codes (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  code text not null unique,
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now()
+);
+
+create index if not exists referral_codes_code_idx on referral_codes(code);
+
+create table if not exists referral_attributions (
+  id uuid primary key default uuid_generate_v4(),
+  referrer_user_id uuid not null references auth.users(id) on delete cascade,
+  referee_user_id uuid not null unique references auth.users(id) on delete cascade,
+  referral_code text not null references referral_codes(code),
+  status text not null default 'linked',
+  source text,
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now(),
+  constraint referral_no_self check (referrer_user_id <> referee_user_id),
+  constraint referral_attr_status_check check (status in ('linked', 'reserved', 'paid', 'credited', 'invalid'))
+);
+
+create index if not exists referral_attr_referrer_idx on referral_attributions(referrer_user_id);
+create index if not exists referral_attr_referee_idx on referral_attributions(referee_user_id);
+
+create table if not exists referral_discount_reservations (
+  id uuid primary key default uuid_generate_v4(),
+  invitee_user_id uuid not null references auth.users(id) on delete cascade,
+  referrer_user_id uuid not null references auth.users(id) on delete cascade,
+  referral_code text not null references referral_codes(code),
+  plan text not null,
+  list_amount_cents int not null,
+  discount_percent int not null default 10,
+  discount_cents int not null,
+  final_amount_cents int not null,
+  referrer_credit_cents int not null,
+  status text not null default 'reserved',
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now(),
+  constraint referral_reservation_plan_check check (plan in ('basic', 'pro')),
+  constraint referral_reservation_status_check check (status in ('reserved', 'paid', 'cancelled', 'credited')),
+  constraint referral_amount_check check (
+    list_amount_cents >= 0 and
+    discount_cents >= 0 and
+    final_amount_cents >= 0 and
+    referrer_credit_cents >= 0
+  ),
+  unique (invitee_user_id, plan)
+);
+
+create index if not exists referral_reservation_invitee_idx on referral_discount_reservations(invitee_user_id);
+create index if not exists referral_reservation_referrer_idx on referral_discount_reservations(referrer_user_id);
+
+alter table referral_codes enable row level security;
+alter table referral_attributions enable row level security;
+alter table referral_discount_reservations enable row level security;
+
+drop policy if exists "referral_codes_user_policy" on referral_codes;
+create policy "referral_codes_user_policy" on referral_codes
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "referral_attributions_select_own" on referral_attributions;
+create policy "referral_attributions_select_own" on referral_attributions
+  for select using (auth.uid() = referrer_user_id or auth.uid() = referee_user_id);
+
+drop policy if exists "referral_attributions_insert_referee" on referral_attributions;
+create policy "referral_attributions_insert_referee" on referral_attributions
+  for insert with check (auth.uid() = referee_user_id and auth.uid() <> referrer_user_id);
+
+drop policy if exists "referral_reservations_select_own" on referral_discount_reservations;
+create policy "referral_reservations_select_own" on referral_discount_reservations
+  for select using (auth.uid() = invitee_user_id or auth.uid() = referrer_user_id);
+
+drop policy if exists "referral_reservations_insert_invitee" on referral_discount_reservations;
+create policy "referral_reservations_insert_invitee" on referral_discount_reservations
+  for insert with check (auth.uid() = invitee_user_id);
+
+drop policy if exists "referral_reservations_update_invitee" on referral_discount_reservations;
+create policy "referral_reservations_update_invitee" on referral_discount_reservations
+  for update using (auth.uid() = invitee_user_id) with check (auth.uid() = invitee_user_id);
+
+create or replace function claim_referral(input_code text, input_source text default 'invite_link')
+returns table(status text, referrer_user_id uuid, referral_code text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_code text := upper(trim(coalesce(input_code, '')));
+  v_referrer uuid;
+begin
+  if v_user_id is null then
+    return query select 'unauthenticated'::text, null::uuid, null::text;
+    return;
+  end if;
+
+  if v_code = '' then
+    return query select 'no_code'::text, null::uuid, null::text;
+    return;
+  end if;
+
+  select rc.user_id into v_referrer
+  from referral_codes rc
+  where rc.code = v_code
+  limit 1;
+
+  if v_referrer is null then
+    return query select 'invalid_code'::text, null::uuid, v_code;
+    return;
+  end if;
+
+  if v_referrer = v_user_id then
+    return query select 'self_referral'::text, v_referrer, v_code;
+    return;
+  end if;
+
+  if exists(select 1 from referral_attributions ra where ra.referee_user_id = v_user_id) then
+    return query select 'already_claimed'::text, v_referrer, v_code;
+    return;
+  end if;
+
+  insert into referral_attributions (
+    referrer_user_id,
+    referee_user_id,
+    referral_code,
+    status,
+    source,
+    updated_at
+  )
+  values (
+    v_referrer,
+    v_user_id,
+    v_code,
+    'linked',
+    coalesce(nullif(trim(input_source), ''), 'invite_link'),
+    now()
+  );
+
+  return query select 'claimed'::text, v_referrer, v_code;
+end;
+$$;
+
+grant execute on function claim_referral(text, text) to authenticated;
+
+create or replace function reserve_referral_discount(
+  input_plan text,
+  input_list_amount_cents int,
+  input_discount_percent int default 10
+)
+returns table(
+  status text,
+  plan text,
+  list_amount_cents int,
+  discount_percent int,
+  discount_cents int,
+  final_amount_cents int,
+  referrer_credit_cents int,
+  referral_code text,
+  referrer_user_id uuid
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_plan text := lower(trim(coalesce(input_plan, '')));
+  v_amount int := coalesce(input_list_amount_cents, 0);
+  v_percent int := greatest(0, least(100, coalesce(input_discount_percent, 10)));
+  v_discount int := 0;
+  v_final int := 0;
+  v_referrer uuid;
+  v_code text;
+begin
+  if v_user_id is null then
+    return query select 'unauthenticated'::text, v_plan, v_amount, v_percent, 0, v_amount, 0, null::text, null::uuid;
+    return;
+  end if;
+
+  if v_plan not in ('basic', 'pro') then
+    return query select 'plan_not_eligible'::text, v_plan, v_amount, v_percent, 0, v_amount, 0, null::text, null::uuid;
+    return;
+  end if;
+
+  if v_amount <= 0 then
+    return query select 'invalid_amount'::text, v_plan, v_amount, v_percent, 0, v_amount, 0, null::text, null::uuid;
+    return;
+  end if;
+
+  select ra.referrer_user_id, ra.referral_code
+    into v_referrer, v_code
+  from referral_attributions ra
+  where ra.referee_user_id = v_user_id
+  limit 1;
+
+  if v_referrer is null or v_code is null then
+    return query select 'no_referral'::text, v_plan, v_amount, v_percent, 0, v_amount, 0, null::text, null::uuid;
+    return;
+  end if;
+
+  v_discount := round(v_amount * (v_percent::numeric / 100.0));
+  if v_discount < 0 then v_discount := 0; end if;
+  if v_discount > v_amount then v_discount := v_amount; end if;
+  v_final := v_amount - v_discount;
+
+  insert into referral_discount_reservations (
+    invitee_user_id,
+    referrer_user_id,
+    referral_code,
+    plan,
+    list_amount_cents,
+    discount_percent,
+    discount_cents,
+    final_amount_cents,
+    referrer_credit_cents,
+    status,
+    updated_at
+  )
+  values (
+    v_user_id,
+    v_referrer,
+    v_code,
+    v_plan,
+    v_amount,
+    v_percent,
+    v_discount,
+    v_final,
+    v_discount,
+    'reserved',
+    now()
+  )
+  on conflict (invitee_user_id, plan)
+  do update set
+    referrer_user_id = excluded.referrer_user_id,
+    referral_code = excluded.referral_code,
+    list_amount_cents = excluded.list_amount_cents,
+    discount_percent = excluded.discount_percent,
+    discount_cents = excluded.discount_cents,
+    final_amount_cents = excluded.final_amount_cents,
+    referrer_credit_cents = excluded.referrer_credit_cents,
+    status = 'reserved',
+    updated_at = now();
+
+  update referral_attributions
+  set status = case when status = 'linked' then 'reserved' else status end,
+      updated_at = now()
+  where referee_user_id = v_user_id;
+
+  return query select
+    'reserved'::text,
+    v_plan,
+    v_amount,
+    v_percent,
+    v_discount,
+    v_final,
+    v_discount,
+    v_code,
+    v_referrer;
+end;
+$$;
+
+grant execute on function reserve_referral_discount(text, int, int) to authenticated;

@@ -458,6 +458,24 @@ select {
   color: #81fff0;
 }
 
+.referral-cta-button {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.referral-cta-button:hover {
+  text-decoration: underline;
+}
+
+.referral-feedback {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #bceee8;
+}
+
 .referral-tip {
   position: absolute;
   left: 24px;
@@ -650,6 +668,7 @@ select {
   transform: translateY(0);
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 
 .topbar.menu-open ~ .floating-help {
@@ -1607,7 +1626,7 @@ select {
 
 .checkbox-wrapper-5 .check label::before,
 .checkbox-wrapper-5 .check label::after {
-  content: '· ·';
+  content: 'Â· Â·';
   position: absolute;
   overflow: hidden;
   left: calc(0.15 * var(--size));
@@ -1624,7 +1643,7 @@ select {
 }
 
 .checkbox-wrapper-5 .check label::after {
-  content: '●';
+  content: 'â—';
   top: calc(0.65 * var(--size));
   left: calc(0.2 * var(--size));
   height: calc(0.1 * var(--size));
@@ -1811,6 +1830,259 @@ select {
 .plan-card.highlight .primary {
   background: #fff;
   color: #1f1f1f;
+}
+
+.payments-page .plans-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(236px, 264px));
+  justify-content: center;
+  gap: 14px;
+  margin-top: 14px;
+  align-items: stretch;
+}
+
+.payments-page > .page-card:first-child {
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  padding: 0;
+}
+
+.payments-page .payments-discount-note {
+  margin-top: 0.35rem;
+  color: #1f7871;
+  font-weight: 600;
+}
+
+.payments-page .card-container {
+  --plan-c1: #91cec6;
+  --plan-c2: #a7ddd6;
+  --plan-c3: #c0eae4;
+  --plan-c4: #daf4ef;
+  width: 100%;
+  background: linear-gradient(to top right, var(--plan-c1), var(--plan-c2) 40%, var(--plan-c3) 70%, var(--plan-c4) 100%);
+  padding: 4px;
+  border-radius: 32px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  box-shadow: 0 10px 22px rgba(20, 52, 62, 0.14);
+}
+
+.payments-page .elea-plan-free {
+  --plan-c1: #b9c9c8;
+  --plan-c2: #c7d7d6;
+  --plan-c3: #d4e3e2;
+  --plan-c4: #e5efee;
+}
+
+.payments-page .elea-plan-basic {
+  --plan-c1: #4e9ec0;
+  --plan-c2: #5fb2cf;
+  --plan-c3: #79c3da;
+  --plan-c4: #9fd9e7;
+}
+
+.payments-page .elea-plan-pro {
+  --plan-c1: #2b708a;
+  --plan-c2: #2e8297;
+  --plan-c3: #3aa1ad;
+  --plan-c4: #61bfc5;
+}
+
+.payments-page .card-container .title-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  color: #fff;
+}
+
+.payments-page .card-container .title-card p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  font-style: italic;
+  text-shadow: 0 2px 6px rgba(25, 51, 58, 0.18);
+}
+
+.payments-page .plan-title-badge {
+  border: 1px solid rgba(230, 245, 249, 0.72);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(11, 28, 39, 0.52);
+  color: #f3fbff;
+  box-shadow: 0 5px 12px rgba(10, 24, 33, 0.24);
+}
+
+.payments-page .elea-plan-free .plan-title-badge {
+  background: rgba(53, 73, 77, 0.62);
+  border-color: rgba(227, 237, 240, 0.82);
+  color: #f4f8f9;
+}
+
+.payments-page .elea-plan-basic .plan-title-badge {
+  background: rgba(17, 74, 101, 0.76);
+  border-color: rgba(195, 236, 250, 0.84);
+  color: #eefdff;
+}
+
+.payments-page .elea-plan-pro .plan-title-badge {
+  background: rgba(15, 93, 109, 0.8);
+  border-color: rgba(195, 242, 240, 0.84);
+  color: #edfffd;
+}
+
+.payments-page .card-container .card-content {
+  width: 100%;
+  height: 100%;
+  border-radius: 30px;
+  color: #9eb2c2;
+  font-size: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: linear-gradient(165deg, #17222b 0%, #1c2934 56%, #233340 100%);
+}
+
+.payments-page .plan-title-wrap h3 {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  color: #f5faff;
+}
+
+.payments-page .plan-title-wrap p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #9fb2c2;
+}
+
+.payments-page .plan-price.compact {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.payments-page .plan-price-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6f8597;
+}
+
+.payments-page .plan-price-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.payments-page .card-separate {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  font-size: 10px;
+  color: rgba(154, 173, 189, 0.75);
+}
+
+.payments-page .card-separate .separate {
+  width: 100%;
+  height: 1px;
+  background: rgba(141, 161, 178, 0.4);
+}
+
+.payments-page .card-list-features {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: #c8d5e2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+}
+
+.payments-page .card-list-features .option {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  line-height: 1.4;
+}
+
+.payments-page .card-list-features .option::before {
+  content: '\2713';
+  color: #71e5d8;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
+.payments-page .card-btn {
+  background: linear-gradient(5deg, var(--plan-c1), var(--plan-c2) 42%, var(--plan-c3) 70%, var(--plan-c4) 100%);
+  padding: 9px;
+  border: none;
+  width: 100%;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 700;
+  transition: all 0.24s ease-in-out;
+  cursor: pointer;
+  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.45);
+}
+
+.payments-page .card-btn:hover {
+  color: #ffffff;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.7);
+  transform: translateY(-1px) scale(1.01);
+}
+
+.payments-page .card-btn:active {
+  transform: scale(0.99);
+}
+
+.payments-page .card-btn.is-current,
+.payments-page .card-btn:disabled {
+  background: #3f4e5f;
+  color: #d5e0ea;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.15);
+  cursor: default;
+  text-shadow: none;
+}
+
+.payments-page .card-btn.is-current:hover,
+.payments-page .card-btn:disabled:hover {
+  transform: none;
+}
+
+@media (max-width: 1200px) {
+  .payments-page .plans-grid {
+    grid-template-columns: repeat(2, minmax(236px, 264px));
+    justify-content: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .payments-page .plans-grid {
+    grid-template-columns: minmax(232px, 300px);
+    justify-content: center;
+  }
+
+  .payments-page .card-container .card-content {
+    padding: 16px;
+  }
+
+  .payments-page .plan-title-wrap h3 {
+    font-size: 1.8rem;
+  }
 }
 
 .feed {

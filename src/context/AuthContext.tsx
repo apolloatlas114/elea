@@ -7,8 +7,8 @@ import { clearUserLocalState, STORAGE_KEYS } from '../lib/storage'
 type AuthState = {
   user: AuthUser | null
   loading: boolean
-  login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string) => Promise<{ needsEmailConfirmation: boolean; email: string }>
+  login: (email: string, password: string) => Promise<AuthUser>
+  register: (email: string, password: string) => Promise<{ needsEmailConfirmation: boolean; email: string; user: AuthUser | null }>
   logout: () => Promise<void>
 }
 
@@ -42,6 +42,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       pagePath: '/auth',
     })
     void bootstrapAdminSessionEvent(next.id, next.email)
+    return next
   }, [])
 
   const register = useCallback(async (email: string, password: string) => {
@@ -65,6 +66,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return {
       needsEmailConfirmation: registration.needsEmailConfirmation,
       email: registration.email,
+      user: registration.user,
     }
   }, [])
 

@@ -1,11 +1,13 @@
-import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import LoadingTicker from '../components/LoadingTicker'
 import { useAuth } from '../context/AuthContext'
+import { captureReferralCodeFromSearch, claimPendingReferral, getPendingReferralCode, type ReferralClaimResult } from '../lib/referrals'
 
 const AuthPage = () => {
   const { login, register } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -13,14 +15,42 @@ const AuthPage = () => {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [referralNotice, setReferralNotice] = useState<string | null>(null)
   const [registrationPendingEmail, setRegistrationPendingEmail] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const captured = captureReferralCodeFromSearch(location.search)
+    const pending = captured ?? getPendingReferralCode()
+    if (!pending) return
+    setReferralNotice(`Einladungs-Code ${pending} erkannt. Der 10%-Vorteil wird nach deinem Login vorgemerkt.`)
+  }, [location.search])
+
+  const applyClaimNotice = (result: ReferralClaimResult) => {
+    if (result.status === 'claimed') {
+      setReferralNotice('Referral erfolgreich verknüpft. Dein 10%-Vorteil wird vor dem Checkout reserviert.')
+      return
+    }
+    if (result.status === 'already_claimed') {
+      setReferralNotice('Referral ist bereits mit deinem Account verknüpft.')
+      return
+    }
+    if (result.status === 'self_referral') {
+      setReferralNotice('Eigene Referral-Links können nicht selbst eingelöst werden.')
+      return
+    }
+    if (result.status === 'invalid_code') {
+      setReferralNotice('Referral-Code nicht gefunden oder abgelaufen.')
+    }
+  }
 
   const handleLogin = async () => {
     setLoading(true)
     setError(null)
     try {
-      await login(email, password)
+      const currentUser = await login(email, password)
+      const claimResult = await claimPendingReferral(currentUser.id)
+      applyClaimNotice(claimResult)
       navigate('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login fehlgeschlagen')
@@ -35,12 +65,20 @@ const AuthPage = () => {
     try {
       const result = await register(email, password)
 
+      if (result.user) {
+        const claimResult = await claimPendingReferral(result.user.id)
+        applyClaimNotice(claimResult)
+      }
+
       if (result.needsEmailConfirmation) {
         setRegistrationPendingEmail(result.email)
         setMode('login')
         setShowPassword(false)
         setPassword('')
         setConfirmPassword('')
+        if (getPendingReferralCode()) {
+          setReferralNotice('Referral gespeichert. Nach E-Mail-Bestätigung und Login wird er automatisch verknüpft.')
+        }
         return
       }
 
@@ -99,6 +137,8 @@ const AuthPage = () => {
                 : 'Nutze das Registrierungsformular und starte sofort in dein persönliches Thesis-System.'}
             </p>
           </header>
+
+          {referralNotice && <div className="auth-v0-notice">{referralNotice}</div>}
 
           {mode === 'login' ? (
             <form className="auth-v0-form" onSubmit={handleSubmit}>
