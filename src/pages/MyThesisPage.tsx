@@ -50,7 +50,18 @@ import {
   parseJson,
   todayIso,
 } from '../lib/storage'
-import type { AssessmentResult, Plan, StudyMaterial, StudyQuiz, StudyTutorDoc, ThesisChecklistItem, ThesisDocument, ThesisNote, TodoItem } from '../lib/storage'
+import type {
+  AssessmentResult,
+  Plan,
+  StudyMaterial,
+  StudyQuiz,
+  StudyQuizAttempt,
+  StudyTutorDoc,
+  ThesisChecklistItem,
+  ThesisDocument,
+  ThesisNote,
+  TodoItem,
+} from '../lib/storage'
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 B'
@@ -76,6 +87,31 @@ const documentLabel = (name: string) => {
   if (parts.length < 2) return 'FILE'
   return parts[parts.length - 1].toUpperCase().slice(0, 4)
 }
+
+const UNI_GRADE_STEPS = [1.0, 1.3, 1.7, 2.0, 2.3, 2.7, 3.0, 3.3, 3.7, 4.0, 5.0] as const
+
+const snapUniGrade = (value: number) => {
+  const candidates = UNI_GRADE_STEPS as unknown as number[]
+  if (!Number.isFinite(value)) return 5.0
+  return candidates.reduce((best, grade) => (Math.abs(grade - value) < Math.abs(best - value) ? grade : best), candidates[0])
+}
+
+const gradeFromPercent = (percent: number) => {
+  const value = Number.isFinite(percent) ? percent : 0
+  if (value >= 95) return 1.0
+  if (value >= 90) return 1.3
+  if (value >= 85) return 1.7
+  if (value >= 80) return 2.0
+  if (value >= 75) return 2.3
+  if (value >= 70) return 2.7
+  if (value >= 65) return 3.0
+  if (value >= 60) return 3.3
+  if (value >= 55) return 3.7
+  if (value >= 50) return 4.0
+  return 5.0
+}
+
+const formatUniGrade = (grade: number) => snapUniGrade(grade).toFixed(1).replace('.', ',')
 
 const checklistBase: ThesisChecklistItem[] = [
   { id: 'title-page', title: 'Titelblatt', detail: 'Cover, Author, Studiengang', done: false },
@@ -146,6 +182,7 @@ const MyThesisPage = () => {
   const [todoFormOpen, setTodoFormOpen] = useState(false)
   const [todoError, setTodoError] = useState('')
   const [selectedTodo, setSelectedTodo] = useState<TodoItem | null>(null)
+  const [selectedNote, setSelectedNote] = useState<ThesisNote | null>(null)
   const [noteError, setNoteError] = useState('')
   const [noteDraft, setNoteDraft] = useState<NoteDraft>({
     title: '',
@@ -181,6 +218,9 @@ const MyThesisPage = () => {
   const [studyQuizDone, setStudyQuizDone] = useState(false)
   const [studyQuizStarted, setStudyQuizStarted] = useState(false)
   const [studyQuizSecondsLeft, setStudyQuizSecondsLeft] = useState(0)
+  const [studyQuizAttemptId, setStudyQuizAttemptId] = useState('')
+  const [studyQuizStartedAt, setStudyQuizStartedAt] = useState('')
+  const [studyQuizTotalSeconds, setStudyQuizTotalSeconds] = useState(0)
 
   const { user } = useAuth()
   const profile = useStoredProfile()
@@ -333,6 +373,19 @@ const MyThesisPage = () => {
   const notesWithLinks = notes.filter((note) => note.linkedDocumentId || note.linkedTodoId).length
   const studyTotalCount = studyMaterials.length
   const studyReadyCount = studyMaterials.filter((item) => item.status === 'ready').length
+  const studyQuizAttempts = useMemo(() => studyMaterials.flatMap((material) => material.quizHistory ?? []), [studyMaterials])
+  const studyQuizPassedCount = useMemo(
+    () => studyQuizAttempts.filter((attempt) => Number.isFinite(attempt.grade) && attempt.grade <= 4.0).length,
+    [studyQuizAttempts]
+  )
+  const studyQuizFailedCount = Math.max(studyQuizAttempts.length - studyQuizPassedCount, 0)
+  const studyQuizAverageGrade = useMemo(() => {
+    if (studyQuizAttempts.length === 0) return null
+    const avg =
+      studyQuizAttempts.reduce((sum, attempt) => sum + (Number.isFinite(attempt.grade) ? attempt.grade : 5.0), 0) /
+      studyQuizAttempts.length
+    return snapUniGrade(avg)
+  }, [studyQuizAttempts])
   const activeStudyMaterial = useMemo(
     () => studyMaterials.find((material) => material.id === studyActiveId) ?? null,
     [studyMaterials, studyActiveId]
@@ -385,19 +438,19 @@ const MyThesisPage = () => {
   }, [eleaScorePercent])
 
   const sparklineValues = useMemo(() => {
-    const logValues = stress.log.slice(-8).map((entry) => clamp(100 - entry.value, 10, 95))
-    if (logValues.length >= 5) return logValues
-
-    return [
-      clamp(progressValue - 18, 20, 95),
-      clamp(progressValue - 12, 20, 95),
-      clamp(progressValue - 8, 20, 95),
+    const fallbackValues = [
+      clamp(progressValue - 14, 20, 95),
+      clamp(progressValue - 10, 20, 95),
+      clamp(progressValue - 7, 20, 95),
       clamp(progressValue - 4, 20, 95),
-      clamp(progressValue - 2, 20, 95),
-      clamp(progressValue, 20, 95),
+      clamp(progressValue - 1, 20, 95),
       clamp(progressValue + 1, 20, 95),
-      clamp(progressValue + 2, 20, 95),
+      clamp(progressValue + 3, 20, 95),
     ]
+    const logValues = stress.log.slice(-7).map((entry) => clamp(100 - entry.value, 10, 95))
+    if (logValues.length === 0) return fallbackValues
+    if (logValues.length >= 7) return logValues
+    return [...fallbackValues.slice(0, 7 - logValues.length), ...logValues]
   }, [stress.log, progressValue])
 
   const sparklinePath = useMemo(() => {
@@ -631,7 +684,7 @@ const MyThesisPage = () => {
   const ensureStudySelection = (nextId?: string) => {
     setStudyActiveId((prev) => {
       if (nextId) return nextId
-      if (prev) return prev
+      if (prev && studyMaterials.some((item) => item.id === prev)) return prev
       return studyMaterials[0]?.id ?? ''
     })
   }
@@ -646,12 +699,23 @@ const MyThesisPage = () => {
     setStudyQuizDone(false)
     setStudyQuizStarted(false)
     setStudyQuizSecondsLeft(0)
+    setStudyQuizAttemptId('')
+    setStudyQuizStartedAt('')
+    setStudyQuizTotalSeconds(0)
   }
 
   const startStudyQuiz = () => {
     resetStudyQuizState()
+    const attemptId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `attempt-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const totalSeconds = 6 * 60
+    setStudyQuizAttemptId(attemptId)
+    setStudyQuizStartedAt(new Date().toISOString())
+    setStudyQuizTotalSeconds(totalSeconds)
     setStudyQuizStarted(true)
-    setStudyQuizSecondsLeft(6 * 60)
+    setStudyQuizSecondsLeft(totalSeconds)
   }
 
   useEffect(() => {
@@ -666,6 +730,57 @@ const MyThesisPage = () => {
     }, 1000)
     return () => window.clearInterval(timer)
   }, [studyQuizStarted, studyQuizDone, studyQuizSecondsLeft])
+
+  useEffect(() => {
+    if (!studyQuizDone) return
+    if (!studyQuizAttemptId) return
+
+    const material = activeStudyMaterial
+    if (!material?.quiz) {
+      setStudyQuizAttemptId('')
+      return
+    }
+
+    const finishedAt = new Date().toISOString()
+    const questions = material.quiz?.[studyQuizLevel] ?? []
+    const total = questions.length
+    const correct = questions.filter((q, idx) => studyQuizAnswers[idx] === q.correct).length
+    const percent = total > 0 ? Math.round((correct / total) * 100) : 0
+    const grade = gradeFromPercent(percent)
+    const secondsSpent = studyQuizTotalSeconds > 0 ? Math.max(0, studyQuizTotalSeconds - studyQuizSecondsLeft) : 0
+
+    const attempt: StudyQuizAttempt = {
+      id: studyQuizAttemptId,
+      materialId: material.id,
+      level: studyQuizLevel,
+      total,
+      correct,
+      percent,
+      grade,
+      startedAt: studyQuizStartedAt || finishedAt,
+      finishedAt,
+      secondsSpent,
+    }
+
+    setStudyMaterials((prev) =>
+      prev.map((item) => {
+        if (item.id !== material.id) return item
+        const nextHistory = [attempt, ...(item.quizHistory ?? []).filter((h) => h.id !== attempt.id)].slice(0, 60)
+        return { ...item, quizHistory: nextHistory, updatedAt: finishedAt }
+      })
+    )
+
+    setStudyQuizAttemptId('')
+  }, [
+    studyQuizDone,
+    studyQuizAttemptId,
+    studyQuizLevel,
+    studyQuizAnswers,
+    studyQuizSecondsLeft,
+    studyQuizTotalSeconds,
+    studyQuizStartedAt,
+    activeStudyMaterial,
+  ])
 
   const chunkText = (text: string, maxChars: number) => {
     const cleaned = text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
@@ -824,16 +939,22 @@ const MyThesisPage = () => {
         maxTokens: 2200,
       })
 
+      const isReady = Boolean(tutorResult.parsed && quizResult.parsed)
+      if (!isReady) {
+        const message = 'Analyse unvollständig. Bitte erneut versuchen oder ein kleineres PDF nutzen.'
+        // Requested: remove errored materials immediately (no "Fehler" entries in the list).
+        setStudyMaterials((prev) => prev.filter((item) => item.id !== id))
+        setStudyError(`${file.name}: ${message}`)
+        setStudyProgress(null)
+        return
+      }
+
       const next: StudyMaterial = {
         ...baseItem,
         pageCount,
-        status: tutorResult.parsed && quizResult.parsed ? 'ready' : 'error',
+        status: 'ready',
         tutor: tutorResult.parsed ?? undefined,
         quiz: quizResult.parsed ?? undefined,
-        error:
-          tutorResult.parsed && quizResult.parsed
-            ? undefined
-            : 'Analyse unvollständig. Bitte erneut versuchen oder ein kleineres PDF nutzen.',
         updatedAt: new Date().toISOString(),
       }
 
@@ -842,14 +963,9 @@ const MyThesisPage = () => {
       window.setTimeout(() => setStudyProgress(null), 900)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Analyse fehlgeschlagen.'
-      setStudyMaterials((prev) =>
-        prev.map((item) =>
-          item.id === id
-            ? { ...item, status: 'error', error: message, updatedAt: new Date().toISOString() }
-            : item
-        )
-      )
-      setStudyError(message)
+      // Requested: remove errored materials immediately (no "Fehler" entries in the list).
+      setStudyMaterials((prev) => prev.filter((item) => item.id !== id))
+      setStudyError(`${file.name}: ${message}`)
       setStudyProgress(null)
     } finally {
       setStudyBusy(false)
@@ -1044,10 +1160,15 @@ const MyThesisPage = () => {
   const dashOffset = circumference - (progressValue / 100) * circumference
 
   const performanceBars = useMemo(() => {
-    const labels = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8']
-    const values = sparklineValues.slice(-8)
+    const values = sparklineValues.slice(-7)
+    const today = new Date()
+    const labels = values.map((_, index) => {
+      const day = new Date(today)
+      day.setDate(today.getDate() - (values.length - 1 - index))
+      return day.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+    })
     return values.map((value, index) => ({
-      label: labels[index] ?? `W${index + 1}`,
+      label: labels[index] ?? '--.--',
       value,
     }))
   }, [sparklineValues])
@@ -1088,9 +1209,7 @@ const MyThesisPage = () => {
     <section className="page thesis-page thesis-shell">
       <aside className="page-card thesis-surface thesis-left-rail">
         <div className="thesis-rail-head">
-          <p className="thesis-kicker">ELEA Thesis</p>
           <h1>My Thesis</h1>
-          <p className="thesis-subline">Dein zentraler Arbeitsbereich für Fortschritt, Fokus und Abgabe.</p>
         </div>
 
         <nav className="thesis-rail-nav" aria-label="My Thesis Navigation">
@@ -1140,10 +1259,10 @@ const MyThesisPage = () => {
                   <small>{profile?.abgabedatum ? `Termin: ${profile.abgabedatum}` : 'Abgabedatum im Profil setzen'}</small>
                 </div>
                 <div className="thesis-pro-kpi">
-                  <span>Wochensprint</span>
-                  <strong>{todosWeek} geplant</strong>
+                  <span>Durchschnittsnote</span>
+                  <strong>{studyQuizAverageGrade === null ? '--' : formatUniGrade(studyQuizAverageGrade)}</strong>
                   <small>
-                    Heute {todosToday} · {overdueTodos > 0 ? `${overdueTodos} überfällig` : 'keine überfälligen'}
+                    {studyQuizAttempts.length === 0 ? 'Noch keine Quiz-Ergebnisse' : `${studyQuizAttempts.length} Quiz gespeichert`}
                   </small>
                 </div>
                 <div className="thesis-pro-kpi">
@@ -1168,7 +1287,7 @@ const MyThesisPage = () => {
                     <h2>
                       <BarChart3 size={15} /> Performance
                     </h2>
-                    <span>letzte 8 Signale</span>
+                    <span>letzte 7 Tage</span>
                   </div>
                   <div className="thesis-pro-bars">
                     {performanceBars.map((item) => (
@@ -1364,6 +1483,36 @@ const MyThesisPage = () => {
               </div>
               <div className="thesis-pro-card-note">
                 Notizen werden automatisch gespeichert und zwischen Geräten synchronisiert.
+              </div>
+            </article>
+
+            <article className="page-card thesis-surface thesis-pro-study-card">
+              <div className="thesis-panel-head">
+                <h2>
+                  <GraduationCap size={16} /> Lernlabor
+                </h2>
+                <button className="ghost" type="button" onClick={() => setActiveView('study')}>
+                  Öffnen
+                </button>
+              </div>
+              <div className="thesis-pro-stat-grid">
+                <div className="thesis-pro-stat-item">
+                  <span>Tests gesamt</span>
+                  <strong>{studyQuizAttempts.length}</strong>
+                </div>
+                <div className="thesis-pro-stat-item">
+                  <span>Bestanden</span>
+                  <strong>{studyQuizPassedCount}</strong>
+                </div>
+                <div className="thesis-pro-stat-item">
+                  <span>Nicht bestanden</span>
+                  <strong>{studyQuizFailedCount}</strong>
+                </div>
+              </div>
+              <div className="thesis-pro-card-note">
+                {studyQuizAttempts.length === 0
+                  ? 'Noch keine Lernlabor-Tests abgeschlossen.'
+                  : `Aktuelle Durchschnittsnote: ${studyQuizAverageGrade === null ? '--' : formatUniGrade(studyQuizAverageGrade)}`}
               </div>
             </article>
           </section>
@@ -1831,58 +1980,60 @@ const MyThesisPage = () => {
                 />
               </div>
 
-              <div
-                className={`thesis-dropzone ${studyBusy ? 'busy' : ''}`}
-                onDragOver={(event) => {
-                  event.preventDefault()
-                }}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  const file = event.dataTransfer.files?.[0]
-                  if (!file) return
-                  void analyzePdfToStudyMaterial(file)
-                }}
-              >
-                <p>
-                  <strong>Drag & Drop:</strong> PDF (max. 20 MB, 50 Seiten)
-                </p>
-                <small>Die Analyse nutzt nur Dateien, die du in diesem Bereich hochlaedst.</small>
-              </div>
-
-              {studyError && <div className="todo-empty thesis-task-error">{studyError}</div>}
-
-              {studyMaterials.length === 0 ? (
-                <div className="todo-empty thesis-task-empty">Noch keine PDFs hochgeladen.</div>
-              ) : (
-                <div className="thesis-study-list">
-                  {studyMaterials.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`thesis-study-item ${studyActiveId === item.id ? 'active' : ''}`}
-                      onClick={() => {
-                        setStudyActiveId(item.id)
-                        setStudyActiveTab('learn')
-                        resetStudyQuizState()
-                      }}
-                    >
-                      <div className="thesis-study-item-main">
-                        <strong title={item.name}>{item.name}</strong>
-                        <span>
-                          {formatBytes(item.size)} · {item.pageCount ? `${item.pageCount} Seiten` : 'PDF'}
-                        </span>
-                      </div>
-                      <span className={`thesis-chip ${item.status}`}>
-                        {item.status === 'processing'
-                          ? 'Analysiere...'
-                          : item.status === 'ready'
-                            ? 'Bereit'
-                            : 'Fehler'}
-                      </span>
-                    </button>
-                  ))}
+              <div className="thesis-study-card-body">
+                <div
+                  className={`thesis-dropzone ${studyBusy ? 'busy' : ''}`}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    const file = event.dataTransfer.files?.[0]
+                    if (!file) return
+                    void analyzePdfToStudyMaterial(file)
+                  }}
+                >
+                  <p>
+                    <strong>Drag & Drop:</strong> PDF (max. 20 MB, 50 Seiten)
+                  </p>
+                  <small>Die Analyse nutzt nur Dateien, die du in diesem Bereich hochlaedst.</small>
                 </div>
-              )}
+
+                {studyError && <div className="todo-empty thesis-task-error">{studyError}</div>}
+
+                {studyMaterials.length === 0 ? (
+                  <div className="todo-empty thesis-task-empty">Noch keine PDFs hochgeladen.</div>
+                ) : (
+                  <div className="thesis-study-list">
+                    {studyMaterials.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`thesis-study-item ${studyActiveId === item.id ? 'active' : ''}`}
+                        onClick={() => {
+                          setStudyActiveId(item.id)
+                          setStudyActiveTab('learn')
+                          resetStudyQuizState()
+                        }}
+                      >
+                        <div className="thesis-study-item-main">
+                          <strong title={item.name}>{item.name}</strong>
+                          <span>
+                            {formatBytes(item.size)} · {item.pageCount ? `${item.pageCount} Seiten` : 'PDF'}
+                          </span>
+                        </div>
+                        <span className={`thesis-chip ${item.status}`}>
+                          {item.status === 'processing'
+                            ? 'Analysiere...'
+                            : item.status === 'ready'
+                              ? 'Bereit'
+                              : 'Fehler'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </article>
 
             <article className="page-card thesis-surface thesis-study-result">
@@ -2076,7 +2227,7 @@ const MyThesisPage = () => {
                                 <div className="thesis-study-questions">
                                   {questions.map((q, idx) => {
                                     const picked = studyQuizAnswers[idx]
-                                    const showFeedback = studyQuizDone || (studyQuizStarted && typeof picked === 'number')
+                                    const showFeedback = studyQuizDone
                                     return (
                                       <div key={`${idx}-${q.question}`} className="thesis-study-q">
                                         <p>
@@ -2087,13 +2238,15 @@ const MyThesisPage = () => {
                                             const isPicked = picked === oIdx
                                             const isCorrect = oIdx === q.correct
                                             const cls =
-                                              showFeedback && isPicked && isCorrect
-                                                ? 'ok'
-                                                : showFeedback && isPicked && !isCorrect
-                                                  ? 'bad'
-                                                  : showFeedback && !isPicked && isCorrect
-                                                    ? 'correct'
-                                                    : ''
+                                              !showFeedback && isPicked
+                                                ? 'picked'
+                                                : showFeedback && isPicked && isCorrect
+                                                  ? 'ok'
+                                                  : showFeedback && isPicked && !isCorrect
+                                                    ? 'bad'
+                                                    : showFeedback && !isPicked && isCorrect
+                                                      ? 'correct'
+                                                      : ''
                                             return (
                                               <button
                                                 key={`${idx}-${oIdx}`}
@@ -2289,10 +2442,22 @@ const MyThesisPage = () => {
               ) : (
                 <div className="thesis-doc-list">
                   {notes.map((note) => (
-                    <article key={note.id} className="todo-item thesis-note-item">
+                    <article
+                      key={note.id}
+                      className="todo-item thesis-note-item"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedNote(note)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedNote(note)
+                        }
+                      }}
+                    >
                       <div className="todo-main">
                         <strong>{note.title}</strong>
-                        <p>{note.content}</p>
+                        <p className="thesis-note-preview">{note.content}</p>
                         <div className="thesis-task-card-meta">
                           <span>Fach: {note.subject || 'Nicht gesetzt'}</span>
                           <span>Tags: {note.tags.length > 0 ? note.tags.join(', ') : 'Keine'}</span>
@@ -2306,13 +2471,21 @@ const MyThesisPage = () => {
                         <button
                           className="ghost"
                           type="button"
-                          onClick={() =>
+                          onClick={(event) => {
+                            event.stopPropagation()
                             updateNotePriority(note.id, note.priority === 'high' ? 'medium' : note.priority === 'medium' ? 'low' : 'high')
-                          }
+                          }}
                         >
                           Priorität: {note.priority}
                         </button>
-                        <button className="ghost todo-remove" type="button" onClick={() => removeNote(note.id)}>
+                        <button
+                          className="ghost todo-remove"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            removeNote(note.id)
+                          }}
+                        >
                           Löschen
                         </button>
                       </div>
@@ -2324,6 +2497,36 @@ const MyThesisPage = () => {
           </section>
         )}
       </main>
+
+      {selectedNote && (
+        <div className="modal-backdrop" onClick={() => setSelectedNote(null)}>
+          <div className="modal thesis-task-modal thesis-note-modal" onClick={(event) => event.stopPropagation()}>
+            <h2>{selectedNote.title}</h2>
+            <p>
+              <strong>Inhalt:</strong>
+            </p>
+            <p className="thesis-note-modal-content">{selectedNote.content}</p>
+            <p>
+              <strong>Fach:</strong> {selectedNote.subject || 'Nicht gesetzt'}
+            </p>
+            <p>
+              <strong>Tags:</strong> {selectedNote.tags.length > 0 ? selectedNote.tags.join(', ') : 'Keine'}
+            </p>
+            <p>
+              <strong>Verknüpfung:</strong>{' '}
+              {selectedNote.linkedDocumentId ? 'Dokument' : selectedNote.linkedTodoId ? 'Aufgabe' : 'Keine'}
+            </p>
+            <p>
+              <strong>Eingabe:</strong> {selectedNote.inputType === 'voice' ? 'Sprache' : 'Text'}
+            </p>
+            <div className="modal-actions">
+              <button className="primary" type="button" onClick={() => setSelectedNote(null)}>
+                Schließen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

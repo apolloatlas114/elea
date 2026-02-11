@@ -119,6 +119,19 @@ export type StudyQuiz = {
   hard: StudyMCQ[]
 }
 
+export type StudyQuizAttempt = {
+  id: string
+  materialId: string
+  level: 'easy' | 'medium' | 'hard'
+  total: number
+  correct: number
+  percent: number
+  grade: number
+  startedAt: string
+  finishedAt: string
+  secondsSpent: number
+}
+
 export type StudyTutorSection = {
   heading: string
   bullets: string[]
@@ -144,6 +157,7 @@ export type StudyMaterial = {
   error?: string
   tutor?: StudyTutorDoc
   quiz?: StudyQuiz
+  quizHistory?: StudyQuizAttempt[]
   createdAt: string
   updatedAt: string
 }
@@ -373,6 +387,47 @@ const normalizeMcqArray = (value: unknown): StudyMCQ[] => {
     .filter((item): item is StudyMCQ => item !== null)
 }
 
+const normalizeQuizHistoryArray = (value: unknown, materialId: string, now: string): StudyQuizAttempt[] => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((raw, index): StudyQuizAttempt | null => {
+      const row = raw as Record<string, unknown>
+      const id =
+        typeof row?.id === 'string' && row.id.trim().length > 0 ? row.id.trim() : `attempt-${Date.now()}-${index}`
+      const level = row?.level === 'easy' || row?.level === 'medium' || row?.level === 'hard' ? row.level : 'medium'
+      const total = typeof row?.total === 'number' ? row.total : Number(row?.total ?? 0)
+      const correct = typeof row?.correct === 'number' ? row.correct : Number(row?.correct ?? 0)
+      const percent = typeof row?.percent === 'number' ? row.percent : Number(row?.percent ?? 0)
+      const grade = typeof row?.grade === 'number' ? row.grade : Number(row?.grade ?? 0)
+      const startedAt = typeof row?.startedAt === 'string' && row.startedAt ? row.startedAt : now
+      const finishedAt = typeof row?.finishedAt === 'string' && row.finishedAt ? row.finishedAt : startedAt
+      const secondsSpent = typeof row?.secondsSpent === 'number' ? row.secondsSpent : Number(row?.secondsSpent ?? 0)
+
+      if (!Number.isFinite(total) || total <= 0) return null
+      if (!Number.isFinite(correct) || correct < 0) return null
+      if (!Number.isFinite(grade) || grade <= 0) return null
+
+      const safeCorrect = Math.min(Math.max(Math.trunc(correct), 0), Math.trunc(total))
+      const safePercent =
+        Number.isFinite(percent) && percent > 0 ? Math.min(Math.max(percent, 0), 100) : (safeCorrect / total) * 100
+
+      return {
+        id,
+        materialId,
+        level,
+        total: Math.trunc(total),
+        correct: safeCorrect,
+        percent: Number(safePercent.toFixed(1)),
+        grade: Number(grade.toFixed(1)),
+        startedAt,
+        finishedAt,
+        secondsSpent: Number.isFinite(secondsSpent) ? Math.max(Math.trunc(secondsSpent), 0) : 0,
+      }
+    })
+    .filter((item): item is StudyQuizAttempt => item !== null)
+    .sort((a, b) => parseTimestamp(b.finishedAt) - parseTimestamp(a.finishedAt))
+}
+
 export const normalizeStudyMaterials = (value: unknown): StudyMaterial[] => {
   const now = new Date().toISOString()
   if (!Array.isArray(value)) return []
@@ -427,6 +482,8 @@ export const normalizeStudyMaterials = (value: unknown): StudyMaterial[] => {
             } satisfies StudyQuiz)
           : undefined
 
+      const quizHistory = normalizeQuizHistoryArray(raw?.quizHistory, id, now)
+
       if (!name) return null
       const result: StudyMaterial = {
         id,
@@ -438,12 +495,13 @@ export const normalizeStudyMaterials = (value: unknown): StudyMaterial[] => {
         ...(error ? { error } : {}),
         tutor,
         quiz,
+        ...(quizHistory.length > 0 ? { quizHistory } : {}),
         createdAt,
         updatedAt,
       }
       return result
     })
-    .filter((item): item is StudyMaterial => item !== null)
+    .filter((item): item is StudyMaterial => item !== null && item.status !== 'error')
     .sort((a, b) => parseTimestamp(b.updatedAt) - parseTimestamp(a.updatedAt))
 }
 

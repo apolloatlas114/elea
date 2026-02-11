@@ -5906,6 +5906,7 @@ select {
 
 .thesis-note-item {
   align-items: start;
+  cursor: pointer;
 }
 
 .thesis-note-item .todo-main {
@@ -5922,6 +5923,20 @@ select {
   font-size: 12px;
   line-height: 1.45;
   color: #486169;
+}
+
+.thesis-note-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.thesis-note-modal-content {
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .thesis-note-box textarea:focus {
@@ -6345,6 +6360,11 @@ select {
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
 
+.thesis-stage-grid--study {
+  /* Make the row height bounded so inner panels can scroll in desktop "no page scroll" mode. */
+  grid-auto-rows: minmax(0, 1fr);
+}
+
 .thesis-stage-grid--documents .thesis-doc-panel,
 .thesis-stage-grid--tasks .thesis-todo-panel,
 .thesis-stage-grid--quality .thesis-quality-card,
@@ -6367,12 +6387,33 @@ select {
 
 .thesis-stage-grid--study .thesis-study-card {
   grid-column: span 4;
-  align-self: start;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
 }
 
 .thesis-stage-grid--study .thesis-study-result {
   grid-column: span 8;
-  align-self: start;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+}
+
+.thesis-study-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.thesis-study-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
 }
 
 .thesis-study-result {
@@ -6385,6 +6426,7 @@ select {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
 }
 
@@ -6407,8 +6449,8 @@ select {
   display: grid;
   gap: 8px;
   margin-top: 12px;
-  max-height: 380px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .thesis-study-item {
@@ -6572,6 +6614,11 @@ select {
   white-space: normal;
 }
 
+.thesis-study-option.picked {
+  border-color: rgba(34, 163, 148, 0.45);
+  background: rgba(34, 163, 148, 0.08);
+}
+
 .thesis-study-option.ok {
   border-color: rgba(34, 163, 148, 0.5);
   background: rgba(34, 163, 148, 0.12);
@@ -6711,6 +6758,7 @@ select {
   .thesis-stage-grid--documents,
   .thesis-stage-grid--tasks,
   .thesis-stage-grid--quality,
+  .thesis-stage-grid--study,
   .thesis-stage-grid--workbench {
     grid-template-columns: 1fr;
     height: auto;
@@ -6726,6 +6774,8 @@ select {
   .thesis-stage-grid--documents .thesis-doc-panel,
   .thesis-stage-grid--tasks .thesis-todo-panel,
   .thesis-stage-grid--quality .thesis-quality-card,
+  .thesis-stage-grid--study .thesis-study-card,
+  .thesis-stage-grid--study .thesis-study-result,
   .thesis-stage-grid--workbench .thesis-notes-panel,
   .thesis-stage-grid--documents .thesis-overview-analytics,
   .thesis-stage-grid--tasks .thesis-checklist-card,
@@ -6757,7 +6807,8 @@ select {
 .thesis-pro-alert-card,
 .thesis-pro-tasks-card,
 .thesis-pro-docs-card,
-.thesis-pro-notes-card {
+.thesis-pro-notes-card,
+.thesis-pro-study-card {
   min-height: 0;
   overflow: hidden;
   padding: clamp(10px, 0.9vw, 14px);
@@ -7087,21 +7138,28 @@ select {
 }
 
 .thesis-pro-tasks-card {
-  grid-column: 1 / span 4;
+  grid-column: 1 / span 3;
   grid-row: 3;
   display: grid;
   gap: 8px;
 }
 
 .thesis-pro-docs-card {
-  grid-column: 5 / span 4;
+  grid-column: 4 / span 3;
   grid-row: 3;
   display: grid;
   gap: 8px;
 }
 
 .thesis-pro-notes-card {
-  grid-column: 9 / span 4;
+  grid-column: 7 / span 3;
+  grid-row: 3;
+  display: grid;
+  gap: 8px;
+}
+
+.thesis-pro-study-card {
+  grid-column: 10 / span 3;
   grid-row: 3;
   display: grid;
   gap: 8px;
@@ -7174,7 +7232,8 @@ select {
   .thesis-pro-alert-card,
   .thesis-pro-tasks-card,
   .thesis-pro-docs-card,
-  .thesis-pro-notes-card {
+  .thesis-pro-notes-card,
+  .thesis-pro-study-card {
     grid-column: auto;
     grid-row: auto;
   }
@@ -7194,7 +7253,8 @@ select {
   .thesis-pro-alert-card,
   .thesis-pro-tasks-card,
   .thesis-pro-docs-card,
-  .thesis-pro-notes-card {
+  .thesis-pro-notes-card,
+  .thesis-pro-study-card {
     grid-column: auto;
   }
 }
@@ -7413,7 +7473,8 @@ select {
 .thesis-pro-alert-card,
 .thesis-pro-tasks-card,
 .thesis-pro-docs-card,
-.thesis-pro-notes-card {
+.thesis-pro-notes-card,
+.thesis-pro-study-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 7px;
