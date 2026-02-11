@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import LoadingTicker from './components/LoadingTicker'
+import { EleaFeatureOrbit } from './components/EleaFeatureOrbit'
 import { PanicModal } from './components/PanicModal'
 import { useAuth } from './context/AuthContext'
 import { recordSecurityEvent, trackActivityEvent } from './lib/adminData'
@@ -44,6 +45,7 @@ const AppLayout = () => {
   const { user } = useAuth()
   const location = useLocation()
   const [panicOpen, setPanicOpen] = useState(false)
+  const [faqOrbitOpen, setFaqOrbitOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [stressSaved, setStressSaved] = useState(false)
@@ -494,7 +496,7 @@ const AppLayout = () => {
       <Outlet />
 
       <div className="floating-help" aria-label="Hilfe und Empfehlungsaktionen">
-        <button className="faq-button floating-faq" type="button" aria-label="FAQ">
+        <button className="faq-button floating-faq" type="button" aria-label="FAQ" onClick={() => setFaqOrbitOpen(true)}>
           <span className="faq-question" aria-hidden="true">
             ?
           </span>
@@ -534,6 +536,21 @@ const AppLayout = () => {
           </div>
         </div>
       </div>
+
+      {faqOrbitOpen && (
+        <div className="modal-backdrop" onClick={() => setFaqOrbitOpen(false)}>
+          <div className="modal faq-orbit-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="faq-orbit-modal-head">
+              <h2>Elea Feature Orbit</h2>
+              <button className="ghost" type="button" onClick={() => setFaqOrbitOpen(false)}>
+                Schliessen
+              </button>
+            </div>
+            <p className="faq-orbit-modal-subline">Klicke auf ein Feature, um die Kurz-Erklaerung zu sehen.</p>
+            <EleaFeatureOrbit />
+          </div>
+        </div>
+      )}
 
       {panicOpen && <PanicModal onClose={() => setPanicOpen(false)} />}
     </div>

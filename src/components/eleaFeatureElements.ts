@@ -8,106 +8,113 @@ export const eleaFeatureItems: EleaFeatureItem[] = [
   {
     id: 'status-check',
     label: 'Status Check',
-    description: 'Gibt dir in Sekunden einen klaren Stand zu Fortschritt, Risiken und naechsten Schritten.',
+    description:
+      '5-Fragen-Einstufungstest, der deinen aktuellen Stand bewertet und dir inkl. Begruendung einen passenden Plan (free, study, basic, pro) empfiehlt.',
   },
   {
     id: 'frag-elea',
     label: 'Frag Elea',
-    description: 'Stellt dir KI-gestuetzte Antworten in einfacher Sprache bereit, direkt aus deinem Lernkontext.',
+    description:
+      'Du stellst Fragen per Text oder Mikrofon und bekommst eine einfache Erklaerung mit Beispielen und naechsten Schritten; daraus kannst du direkt Aufgaben und Lernlabor-Quiz erzeugen.',
   },
   {
     id: 'elea-lernlabor',
     label: 'Elea Lernlabor',
-    description: 'Bietet dir kurze Lernsprints, Aufgaben und Praxisuebungen fuer dein Thesis-Thema.',
+    description:
+      'PDF hochladen, Lern-Sheet erhalten, Thema strukturiert lernen und in Quiz-Leveln (easy, medium, hard) mit Timer und Feedback trainieren.',
   },
   {
     id: 'academia',
     label: 'Academia',
-    description: 'Sammelt Methodenwissen, Leitfaeden und Vorlagen fuer wissenschaftliches Arbeiten.',
+    description:
+      'Zentraler Bereich fuer Methodenwissen/Vorlagen als Download-Bibliothek (aktuell als Elea-Academia-Ordner im Dashboard).',
   },
   {
     id: 'notehub',
     label: 'Notehub',
-    description: 'Buendelt alle Notizen zu Quellen, Ideen und To-dos an einem zentralen Ort.',
+    description:
+      'Notizen mit Prioritaet, Tags sowie Verknuepfung zu Dokumenten/Aufgaben; inklusive Sprach-Input und Live-Sync.',
   },
   {
     id: 'smartsearch',
     label: 'Smartsearch',
-    description: 'Findet relevante Inhalte in deinen Materialien und zeigt dir direkt die passenden Treffer.',
+    description: 'Schnellsuche ueber Dokumente, Aufgaben und Notizen mit direkten Spruengen in den passenden Bereich.',
   },
   {
     id: 'dokumente-upload',
     label: 'Dokumente Upload',
-    description: 'Laedt Expose, Kapitel und Korrekturstaende hoch, damit alles versioniert in elea bleibt.',
+    description:
+      'Mehrfach-Upload fuer PDF/DOC/DOCX, inkl. Such-/Filterfunktionen, Duplikatvermeidung und Dokument-Analytics.',
   },
   {
     id: 'countdown',
     label: 'Countdown',
-    description: 'Zeigt dir die verbleibende Zeit bis zur Abgabe und hilft bei realistischer Wochenplanung.',
+    description: 'Laufender Abgabe-Countdown (Tage/Stunden/Minuten/Sekunden), damit dein Zeitdruck jederzeit sichtbar bleibt.',
   },
   {
     id: 'mental-health-checker',
     label: 'Mental Health Checker',
-    description: 'Trackt dein Stress-Level und macht Warnsignale frueh sichtbar.',
+    description: 'Stress-Level tracken, taeglich speichern, 7-Tage-Verlauf und Fruehwarnung bei anhaltend hoher Belastung.',
   },
   {
     id: 'fortschrittsanzeige',
     label: 'Fortschrittsanzeige',
-    description: 'Visualisiert deinen Thesis-Fortschritt pro Phase und macht Engpaesse transparent.',
+    description: 'Fortschritt in % aus Status, Quiz, Uploads, Checklisten, Aufgabenrhythmus, Plan und Stressfaktor.',
   },
   {
     id: 'risiko-checker',
     label: 'Risiko Checker',
-    description: 'Erkennt Deadline- und Qualitaetsrisiken frueh und zeigt dir konkrete Gegenmassnahmen.',
+    description: 'Risiko-Level (niedrig/mittel/hoch) auf Basis von Fortschritt, verbleibender Zeit, Stress und Betreuungsstatus.',
   },
   {
     id: 'aufgaben-setzen',
     label: 'Aufgaben setzen',
-    description: 'Erstellt priorisierte Aufgaben, damit dein Tagesplan fokussiert und machbar bleibt.',
+    description: 'Priorisierte Aufgaben mit Deadline, Beschreibung und Dokument-Link erstellen, filtern und als erledigt markieren.',
   },
   {
     id: 'elea-school',
     label: 'Elea School',
-    description: 'Liefert kompakte Lernmodule mit Fokus auf Methodik, Schreiben und Verteidigung.',
+    description: 'Modulbasierte Video-Lernumgebung mit Lektionen, Fortschrittsstand und geraeteuebergreifender Speicherung.',
   },
   {
     id: 'chat-support',
     label: 'Chat Support',
-    description: 'Gibt dir schnellen Support bei Strukturfragen, Methodik und Blockaden.',
+    description: 'Direktnachrichten mit Tags (z. B. Methodik/Deadline); direkter Support.',
   },
   {
     id: 'schwaechen-analyse',
     label: 'Schwaechen-Analyse',
-    description: 'Zeigt wiederkehrende Fehlerbilder in Text, Argumentation und Aufbau auf.',
+    description:
+      'Kapitelgenaue Auswertung deiner Quizleistung; ab 50 beantworteten Fragen werden Schwaechen markiert und gezielte Schwaechen-Quiz erzeugt.',
   },
   {
     id: 'community',
     label: 'Community',
-    description: 'Vernetzt dich mit anderen Studierenden fuer Austausch, Motivation und Peer-Lernen.',
+    description: 'Community-Bereich mit Leaderboard, Trends und Buddy-Matching (opt-in privacy-first).',
   },
   {
     id: 'elea-quality-score',
     label: 'Elea Quality Score',
-    description: 'Bewertet die Reife deiner Arbeit anhand von Struktur, Stringenz und Vollstaendigkeit.',
+    description: 'Qualitaetswert deiner Arbeit inkl. Rubrik (z. B. Struktur, Inhalt, Methodik) und klarer Entwicklungssicht.',
   },
   {
     id: 'panic-button',
     label: 'Panic Button',
-    description: 'Startet im Notfall sofortige Hilfe, wenn du dich festgefahren oder ueberfordert fuehlst.',
+    description: 'Soforthilfe-Flow mit 3 Kurzfragen, um in akuten Blockaden schnell Struktur und naechste Schritte auszuloesen.',
   },
   {
     id: 'betreuung-anna',
     label: '1:1 Betreuung mit Anna',
-    description: 'Bietet dir persoenliche Thesis-Begleitung in direkten Sessions mit klaren Next Steps.',
+    description: 'Persoenliche Thesis-Termine mit Dr. Anna Horrer buchbar.',
   },
   {
     id: 'gruppen-calls',
     label: 'Gruppen Calls',
-    description: 'Bringt dich in Live-Sessions mit Feedback, Fragenrunde und gemeinsamer Strukturarbeit.',
+    description: 'Regelmaessige Live-Gruppen-Sessions plus direkter Call-Bereich in elea.',
   },
   {
     id: 'mock-defense',
     label: 'Mock Defense',
-    description: 'Simuliert deine Verteidigung und trainiert klare, sichere Antworten unter Zeitdruck.',
+    description: 'Realistische Verteidigungssimulation als persoenliche Betreuungsleistung.',
   },
 ]

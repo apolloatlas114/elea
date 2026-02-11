@@ -2488,6 +2488,40 @@ select {
   border: 1px solid #d4ece9;
 }
 
+.faq-orbit-modal {
+  width: min(980px, 96vw);
+  max-height: min(92dvh, 940px);
+  padding: 14px;
+  border: 1px solid #d4ece9;
+  overflow: auto;
+}
+
+.faq-orbit-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.faq-orbit-modal-head h2 {
+  margin: 0;
+}
+
+.faq-orbit-modal-subline {
+  margin: 8px 0 10px;
+  color: #5f6b71;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.faq-orbit-modal .elea-orbit-section {
+  margin: 0;
+}
+
+.faq-orbit-modal .elea-orbit-flow {
+  height: min(60dvh, 540px);
+}
+
 .elea-ask-head {
   display: flex;
   align-items: center;
@@ -3349,6 +3383,15 @@ select {
   .elea-orbit-center-chip img {
     width: 66px;
   }
+
+  .faq-orbit-modal {
+    width: min(98vw, 720px);
+    padding: 10px;
+  }
+
+  .faq-orbit-modal .elea-orbit-flow {
+    height: min(54dvh, 420px);
+  }
 }
 
 @media (max-width: 480px) {
@@ -3358,6 +3401,14 @@ select {
 
   .elea-orbit-mini-card p {
     font-size: 11px;
+  }
+
+  .faq-orbit-modal-subline {
+    font-size: 12px;
+  }
+
+  .faq-orbit-modal .elea-orbit-flow {
+    height: min(50dvh, 360px);
   }
 }
 
@@ -10992,6 +11043,37 @@ select {
 
 /* Dashboard mobile tuning (desktop unchanged) */
 @media (max-width: 768px) {
+  .thesis-rail-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px;
+    align-content: start;
+  }
+
+  .thesis-rail-item {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    justify-items: center;
+    text-align: center;
+    gap: 6px;
+    min-height: 84px;
+    padding: 10px 6px;
+  }
+
+  .thesis-rail-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+  }
+
+  .thesis-rail-text {
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .thesis-rail-meta {
+    display: none;
+  }
+
   .app {
     padding: 8px 10px 12px;
     gap: 8px;
@@ -11137,6 +11219,26 @@ select {
 }
 
 @media (max-width: 480px) {
+  .thesis-rail-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px;
+  }
+
+  .thesis-rail-item {
+    min-height: 76px;
+    padding: 8px 5px;
+    gap: 5px;
+  }
+
+  .thesis-rail-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .thesis-rail-text {
+    font-size: 11px;
+  }
+
   .topbar {
     min-height: 46px;
     padding: 5px 8px;

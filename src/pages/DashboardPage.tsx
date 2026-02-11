@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useCountdown } from '../hooks/useCountdown'
 import { useStress } from '../hooks/useStress'
 import { useAuth } from '../context/AuthContext'
-import { EleaFeatureOrbit } from '../components/EleaFeatureOrbit'
 import { groqChatJsonWithFallback } from '../lib/groq'
 import type {
   AssessmentResult,
@@ -1208,7 +1207,6 @@ const DashboardPage = () => {
             <div className="panel-head">
               <h3>Betreuungsplan</h3>
             </div>
-            <EleaFeatureOrbit />
             <div className="plan-item">
               <div className="plan-main">
                 <div className="plan-avatar">
