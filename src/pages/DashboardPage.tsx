@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useCountdown } from '../hooks/useCountdown'
 import { useStress } from '../hooks/useStress'
 import { useAuth } from '../context/AuthContext'
+import { getMicrophoneErrorMessage, startMicrophoneCapture, type MicrophoneCaptureSession } from '../lib/audioCapture'
 import { groqChatJsonWithFallback } from '../lib/groq'
 import type {
   AssessmentResult,
@@ -132,6 +133,7 @@ const buildAssessmentResult = (answers: Record<string, string>): AssessmentResul
   const recommendedPlan: Plan = score >= 8 ? 'pro' : score >= 4 ? 'basic' : 'free'
   const recommendationCopy: Record<Plan, string[]> = {
     free: ['Starker Start im Selbstlernmodus', 'Struktur durch Videos + Checklisten', 'Upgrade jederzeit möglich'],
+    study: ['Mehr Tempo im Alltag', 'Unlimited Lern- und Notizmodus', 'Support innerhalb von 72h'],
     basic: ['Mehr Struktur im Wochenrhythmus', 'Feedback spart Zeit bei Korrekturen', 'Support für offene Fragen'],
     pro: ['Maximale Begleitung bis zur Abgabe', 'Intensives Feedback senkt Risiko', 'Priorität im Support'],
   }
@@ -304,9 +306,7 @@ const DashboardPage = () => {
   const [commitmentSeen, setCommitmentSeen] = useState<boolean>(() =>
     parseJson(localStorage.getItem(STORAGE_KEYS.commitmentSeen), false)
   )
-  const askMediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const askMediaStreamRef = useRef<MediaStream | null>(null)
-  const askMediaChunksRef = useRef<Blob[]>([])
+  const askCaptureRef = useRef<MicrophoneCaptureSession | null>(null)
   const askRecordingTimeoutRef = useRef<number | null>(null)
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -512,7 +512,7 @@ const DashboardPage = () => {
     const video = 30
     const checklist = 30
     const uploads = 20
-    const coaching = plan === 'free' ? 0 : 20
+    const coaching = plan === 'basic' || plan === 'pro' ? 20 : 0
     const base = (Number(profile?.status ?? '0') / 100) * (video + checklist + uploads)
     return Math.min(Math.round(base + coaching), 100)
   }, [plan, profile?.status])
@@ -524,7 +524,7 @@ const DashboardPage = () => {
       0
     )
     const stressValue = stress.value
-    const coaching = plan !== 'free'
+    const coaching = plan === 'basic' || plan === 'pro'
 
     let riskScore = 0
     if (progress < 30) riskScore += 1
@@ -688,11 +688,9 @@ const DashboardPage = () => {
       if (askRecordingTimeoutRef.current) {
         window.clearTimeout(askRecordingTimeoutRef.current)
       }
-      if (askMediaRecorderRef.current && askMediaRecorderRef.current.state !== 'inactive') {
-        askMediaRecorderRef.current.stop()
-      }
-      if (askMediaStreamRef.current) {
-        askMediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      if (askCaptureRef.current) {
+        void askCaptureRef.current.cancel()
+        askCaptureRef.current = null
       }
     }
   }, [])
@@ -895,110 +893,92 @@ const DashboardPage = () => {
     }
   }
 
+  const transcribeAskEleaAudio = async (audioBlob: Blob, extension: string) => {
+    const endpoint = import.meta.env.VITE_TRANSCRIBE_ENDPOINT || '/api/transcribe'
+    const formData = new FormData()
+    formData.append('file', audioBlob, `ask-elea-${Date.now()}.${extension}`)
+
+    let transcript = ''
+    const response = await fetch(endpoint, { method: 'POST', body: formData })
+    if (response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { text?: string; transcript?: string }
+      transcript = (payload?.transcript || payload?.text || '').trim()
+    } else {
+      const groqKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
+      if (!groqKey) throw new Error('Transkription fehlgeschlagen.')
+      const groqForm = new FormData()
+      groqForm.append('file', audioBlob, `ask-elea-${Date.now()}.${extension}`)
+      groqForm.append('model', 'whisper-large-v3-turbo')
+      groqForm.append('language', 'de')
+      groqForm.append('response_format', 'json')
+      const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${groqKey}` },
+        body: groqForm,
+      })
+      const groqPayload = (await groqRes.json().catch(() => ({}))) as { text?: string; error?: { message?: string } }
+      if (!groqRes.ok) {
+        throw new Error(groqPayload?.error?.message || 'Transkription fehlgeschlagen.')
+      }
+      transcript = (groqPayload?.text || '').trim()
+    }
+
+    if (!transcript) throw new Error('Kein Transkript erkannt.')
+    return transcript
+  }
+
+  const stopAskEleaRecording = async () => {
+    const capture = askCaptureRef.current
+    if (!capture) return
+    askCaptureRef.current = null
+
+    if (askRecordingTimeoutRef.current) {
+      window.clearTimeout(askRecordingTimeoutRef.current)
+      askRecordingTimeoutRef.current = null
+    }
+
+    setAskEleaRecording(false)
+    setAskEleaTranscribing(true)
+
+    try {
+      const audio = await capture.stop()
+      const transcript = await transcribeAskEleaAudio(audio.blob, audio.extension)
+      setAskEleaQuestion((prev) => `${prev.trim()} ${transcript}`.trim())
+      setAskEleaNotice({ type: 'ok', text: 'Frage aus Audio uebernommen.' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Transkription fehlgeschlagen.'
+      setAskEleaNotice({ type: 'warn', text: message })
+    } finally {
+      setAskEleaTranscribing(false)
+    }
+  }
+
   const toggleAskEleaRecording = async () => {
     if (askEleaTranscribing) return
 
-    if (askEleaRecording && askMediaRecorderRef.current && askMediaRecorderRef.current.state !== 'inactive') {
-      askMediaRecorderRef.current.stop()
-      return
-    }
-
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setAskEleaNotice({ type: 'warn', text: 'Audioaufnahme wird auf diesem Gerät/Browser nicht unterstützt.' })
+    if (askEleaRecording) {
+      await stopAskEleaRecording()
       return
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      askMediaStreamRef.current = stream
-      askMediaChunksRef.current = []
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-          ? 'audio/mp4'
-          : undefined
-
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
-      askMediaRecorderRef.current = recorder
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          askMediaChunksRef.current.push(event.data)
-        }
-      }
-
-      recorder.onstop = async () => {
-        if (askRecordingTimeoutRef.current) {
-          window.clearTimeout(askRecordingTimeoutRef.current)
-          askRecordingTimeoutRef.current = null
-        }
-        setAskEleaRecording(false)
-        setAskEleaTranscribing(true)
-        try {
-          const audioType = recorder.mimeType || 'audio/webm'
-          const ext = audioType.includes('mp4') ? 'm4a' : 'webm'
-          const audioBlob = new Blob(askMediaChunksRef.current, { type: audioType })
-          if (audioBlob.size === 0) {
-            throw new Error('Keine Audioaufnahme erkannt.')
-          }
-
-          const endpoint = import.meta.env.VITE_TRANSCRIBE_ENDPOINT || '/api/transcribe'
-          const formData = new FormData()
-          formData.append('file', audioBlob, `ask-elea-${Date.now()}.${ext}`)
-
-          let transcript = ''
-          const response = await fetch(endpoint, { method: 'POST', body: formData })
-          if (response.ok) {
-            const payload = (await response.json().catch(() => ({}))) as { text?: string; transcript?: string }
-            transcript = (payload?.transcript || payload?.text || '').trim()
-          } else {
-            const groqKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
-            if (!groqKey) throw new Error('Transkription fehlgeschlagen.')
-            const groqForm = new FormData()
-            groqForm.append('file', audioBlob, `ask-elea-${Date.now()}.${ext}`)
-            groqForm.append('model', 'whisper-large-v3-turbo')
-            groqForm.append('language', 'de')
-            const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${groqKey}` },
-              body: groqForm,
-            })
-            const groqPayload = (await groqRes.json().catch(() => ({}))) as { text?: string; error?: { message?: string } }
-            if (!groqRes.ok) {
-              throw new Error(groqPayload?.error?.message || 'Transkription fehlgeschlagen.')
-            }
-            transcript = (groqPayload?.text || '').trim()
-          }
-
-          if (!transcript) throw new Error('Kein Transkript erkannt.')
-          setAskEleaQuestion((prev) => `${prev.trim()} ${transcript}`.trim())
-          setAskEleaNotice({ type: 'ok', text: 'Frage aus Audio übernommen.' })
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Transkription fehlgeschlagen.'
-          setAskEleaNotice({ type: 'warn', text: message })
-        } finally {
-          setAskEleaTranscribing(false)
-          if (askMediaStreamRef.current) {
-            askMediaStreamRef.current.getTracks().forEach((track) => track.stop())
-            askMediaStreamRef.current = null
-          }
-          askMediaRecorderRef.current = null
-          askMediaChunksRef.current = []
-        }
-      }
-
-      recorder.start()
+      setAskEleaNotice({ type: 'ok', text: 'Mikrofon wird gestartet...' })
+      const capture = await startMicrophoneCapture()
+      askCaptureRef.current = capture
       setAskEleaRecording(true)
-      setAskEleaNotice({ type: 'ok', text: 'Aufnahme läuft... tippe erneut zum Stoppen.' })
+      setAskEleaNotice({ type: 'ok', text: 'Aufnahme laeuft... tippe erneut zum Stoppen.' })
       askRecordingTimeoutRef.current = window.setTimeout(() => {
-        if (askMediaRecorderRef.current && askMediaRecorderRef.current.state !== 'inactive') {
-          askMediaRecorderRef.current.stop()
-        }
+        if (!askCaptureRef.current) return
+        void stopAskEleaRecording()
       }, 30000)
-    } catch {
-      setAskEleaNotice({ type: 'warn', text: 'Mikrofonzugriff nicht möglich. Bitte Browser-Berechtigung prüfen.' })
+    } catch (error) {
+      const message = getMicrophoneErrorMessage(error)
+      setAskEleaNotice({ type: 'warn', text: message })
       setAskEleaRecording(false)
+      if (askCaptureRef.current) {
+        void askCaptureRef.current.cancel()
+        askCaptureRef.current = null
+      }
     }
   }
 

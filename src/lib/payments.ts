@@ -1,6 +1,6 @@
 import { recordFinanceEvent } from './adminData'
 
-type CheckoutProduct = 'free' | 'basic' | 'pro' | 'lektorat'
+type CheckoutProduct = 'free' | 'study' | 'basic' | 'pro' | 'lektorat'
 
 type CheckoutOptions = {
   amountCents?: number
@@ -9,6 +9,7 @@ type CheckoutOptions = {
 
 const AMOUNT_BY_PRODUCT: Record<CheckoutProduct, number> = {
   free: 0,
+  study: 490,
   basic: 59000,
   pro: 129000,
   lektorat: 75000,

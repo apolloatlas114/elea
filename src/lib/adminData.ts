@@ -1,6 +1,6 @@
 import { supabase, supabaseEnabled } from './supabaseClient'
 
-type Plan = 'free' | 'basic' | 'pro'
+type Plan = 'free' | 'study' | 'basic' | 'pro'
 
 type ActivityEventType =
   | 'login_success'
@@ -368,7 +368,7 @@ const formatEur = (value: number) => Math.round(value * 100) / 100
 
 const defaultSnapshot = (): AdminSnapshot => ({
   usersTotal: 0,
-  plans: { free: 0, basic: 0, pro: 0 },
+  plans: { free: 0, study: 0, basic: 0, pro: 0 },
   trafficPageViews30d: 0,
   trafficUniqueSessions30d: 0,
   trafficDaily: [],
@@ -569,6 +569,7 @@ export const loadAdminSnapshot = async (): Promise<AdminSnapshot> => {
     usersTotal: safeArray(profiles).length,
     plans: {
       free: safeArray(plans).filter((row) => row.plan === 'free').length,
+      study: safeArray(plans).filter((row) => row.plan === 'study').length,
       basic: safeArray(plans).filter((row) => row.plan === 'basic').length,
       pro: safeArray(plans).filter((row) => row.plan === 'pro').length,
     },

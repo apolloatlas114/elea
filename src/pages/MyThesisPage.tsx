@@ -1,4 +1,4 @@
-﻿import {
+import {
   Activity,
   BarChart3,
   CalendarDays,
@@ -21,6 +21,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getMicrophoneErrorMessage, startMicrophoneCapture, type MicrophoneCaptureSession } from '../lib/audioCapture'
 import { useStoredProfile } from '../hooks/useStoredProfile'
 import { useStress } from '../hooks/useStress'
 import {
@@ -260,9 +261,7 @@ const MyThesisPage = () => {
   const [synced, setSynced] = useState(false)
   const noteDocUploadRef = useRef<HTMLInputElement | null>(null)
   const studyUploadRef = useRef<HTMLInputElement | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const mediaStreamRef = useRef<MediaStream | null>(null)
-  const mediaChunksRef = useRef<Blob[]>([])
+  const noteCaptureRef = useRef<MicrophoneCaptureSession | null>(null)
   const recordingTimeoutRef = useRef<number | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
@@ -385,11 +384,9 @@ const MyThesisPage = () => {
       if (recordingTimeoutRef.current) {
         window.clearTimeout(recordingTimeoutRef.current)
       }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop()
-      }
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      if (noteCaptureRef.current) {
+        void noteCaptureRef.current.cancel()
+        noteCaptureRef.current = null
       }
     }
   }, [])
@@ -511,7 +508,7 @@ const MyThesisPage = () => {
     const uploadsImpact = Math.min(documents.length * 4, 18)
     const checklistImpact = Math.round(checklistRate * 0.34)
     const todoImpact = Math.min(todosWeek * 3, 16)
-    const planImpact = plan === 'free' ? 0 : plan === 'basic' ? 8 : 13
+    const planImpact = plan === 'pro' ? 13 : plan === 'basic' ? 8 : plan === 'study' ? 5 : 0
     const stressPenalty = Math.round(Math.max(stress.value - 58, 0) * 0.24)
 
     return clamp(statusValue + uploadsImpact + checklistImpact + todoImpact + planImpact - stressPenalty, 6, 100)
@@ -521,7 +518,7 @@ const MyThesisPage = () => {
     const statusValue = Number(profile?.status ?? '0')
     const base = 42 + statusValue * 0.34 + checklistRate * 0.26 + Math.min(documents.length * 2.6, 15)
     const stressImpact = Math.max(stress.value - 55, 0) * 0.19
-    const planBoost = plan === 'pro' ? 8 : plan === 'basic' ? 4 : 0
+    const planBoost = plan === 'pro' ? 8 : plan === 'basic' ? 4 : plan === 'study' ? 2 : 0
     return clamp(Math.round(base + planBoost - stressImpact), 18, 97)
   }, [profile?.status, checklistRate, documents.length, stress.value, plan])
 
@@ -1256,141 +1253,111 @@ Regeln:
     }
   }
 
+  const transcribeNoteAudio = async (audioBlob: Blob, extension: string) => {
+    const endpoint = import.meta.env.VITE_TRANSCRIBE_ENDPOINT || '/api/transcribe'
+    const formData = new FormData()
+    formData.append('file', audioBlob, `note-${Date.now()}.${extension}`)
+
+    let transcript = ''
+
+    try {
+      const response = await fetch(endpoint, { method: 'POST', body: formData })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'API-Transkription fehlgeschlagen.')
+      }
+      transcript = typeof payload?.text === 'string' ? payload.text.trim() : ''
+    } catch {
+      const groqKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
+      const groqModel = (import.meta.env.VITE_GROQ_TRANSCRIPTION_MODEL as string | undefined) || 'whisper-large-v3-turbo'
+      if (!groqKey) {
+        throw new Error('Kein Transkript: API-Route nicht erreichbar und VITE_GROQ_API_KEY fehlt in .env.local.')
+      }
+      const groqForm = new FormData()
+      groqForm.append('file', audioBlob, `note-${Date.now()}.${extension}`)
+      groqForm.append('model', groqModel)
+      groqForm.append('language', 'de')
+      groqForm.append('response_format', 'json')
+
+      const groqResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqKey}`,
+        },
+        body: groqForm,
+      })
+      const groqPayload = await groqResponse.json().catch(() => ({}))
+      if (!groqResponse.ok) {
+        throw new Error(
+          typeof groqPayload?.error?.message === 'string'
+            ? groqPayload.error.message
+            : 'Groq-Transkription fehlgeschlagen.'
+        )
+      }
+      transcript = typeof groqPayload?.text === 'string' ? groqPayload.text.trim() : ''
+    }
+
+    if (!transcript) {
+      throw new Error('Keine Sprache erkannt. Bitte erneut aufnehmen.')
+    }
+    return transcript
+  }
+
+  const stopVoiceCapture = async () => {
+    const capture = noteCaptureRef.current
+    if (!capture) return
+    noteCaptureRef.current = null
+
+    if (recordingTimeoutRef.current) {
+      window.clearTimeout(recordingTimeoutRef.current)
+      recordingTimeoutRef.current = null
+    }
+
+    setIsRecording(false)
+    setIsTranscribing(true)
+
+    try {
+      const audio = await capture.stop()
+      const transcript = await transcribeNoteAudio(audio.blob, audio.extension)
+      setNoteDraft((prev) => ({
+        ...prev,
+        content: prev.content ? `${prev.content}\n${transcript}` : transcript,
+      }))
+      setNoteError('')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Transkription fehlgeschlagen.'
+      setNoteError(`${message} Bitte erneut versuchen oder Text direkt eingeben.`)
+    } finally {
+      setIsTranscribing(false)
+    }
+  }
+
   const startVoiceCapture = async () => {
     if (isTranscribing) return
 
-    if (isRecording && mediaRecorderRef.current) {
-      if (recordingTimeoutRef.current) {
-        window.clearTimeout(recordingTimeoutRef.current)
-        recordingTimeoutRef.current = null
-      }
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-      return
-    }
-
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setNoteError('Sprachaufnahme wird auf diesem Gerät nicht unterstützt. Bitte Text eingeben.')
+    if (isRecording) {
+      await stopVoiceCapture()
       return
     }
 
     try {
-      setNoteError('')
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      mediaStreamRef.current = stream
-      mediaChunksRef.current = []
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-          ? 'audio/mp4'
-          : ''
-
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
-      mediaRecorderRef.current = recorder
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          mediaChunksRef.current.push(event.data)
-        }
-      }
-
-      recorder.onstop = async () => {
-        try {
-          if (recordingTimeoutRef.current) {
-            window.clearTimeout(recordingTimeoutRef.current)
-            recordingTimeoutRef.current = null
-          }
-          setIsTranscribing(true)
-          const audioType = recorder.mimeType || 'audio/webm'
-          const ext = audioType.includes('mp4') ? 'm4a' : 'webm'
-          const audioBlob = new Blob(mediaChunksRef.current, { type: audioType })
-          if (audioBlob.size === 0) {
-            setNoteError('Keine Audioaufnahme erkannt.')
-            return
-          }
-
-          const formData = new FormData()
-          formData.append('file', audioBlob, `note-${Date.now()}.${ext}`)
-
-          const endpoint = import.meta.env.VITE_TRANSCRIBE_ENDPOINT || '/api/transcribe'
-          let transcript = ''
-
-          try {
-            const response = await fetch(endpoint, { method: 'POST', body: formData })
-            const payload = await response.json().catch(() => ({}))
-            if (!response.ok) {
-              throw new Error(typeof payload?.error === 'string' ? payload.error : 'API-Transkription fehlgeschlagen.')
-            }
-            transcript = typeof payload?.text === 'string' ? payload.text.trim() : ''
-          } catch {
-            const groqKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
-            const groqModel = (import.meta.env.VITE_GROQ_TRANSCRIPTION_MODEL as string | undefined) || 'whisper-large-v3-turbo'
-            if (!groqKey) {
-              throw new Error(
-                'Kein Transkript: API-Route nicht erreichbar und VITE_GROQ_API_KEY fehlt in .env.local.'
-              )
-            }
-            const groqForm = new FormData()
-            groqForm.append('file', audioBlob, `note-${Date.now()}.${ext}`)
-            groqForm.append('model', groqModel)
-            groqForm.append('language', 'de')
-            groqForm.append('response_format', 'json')
-
-            const groqResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${groqKey}`,
-              },
-              body: groqForm,
-            })
-            const groqPayload = await groqResponse.json().catch(() => ({}))
-            if (!groqResponse.ok) {
-              throw new Error(
-                typeof groqPayload?.error?.message === 'string'
-                  ? groqPayload.error.message
-                  : 'Groq-Transkription fehlgeschlagen.'
-              )
-            }
-            transcript = typeof groqPayload?.text === 'string' ? groqPayload.text.trim() : ''
-          }
-
-          if (!transcript) {
-            setNoteError('Keine Sprache erkannt. Bitte erneut aufnehmen.')
-            return
-          }
-
-          setNoteDraft((prev) => ({
-            ...prev,
-            content: prev.content ? `${prev.content}\n${transcript}` : transcript,
-          }))
-          setNoteError('')
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Transkription fehlgeschlagen.'
-          setNoteError(`${message} Bitte erneut versuchen oder Text direkt eingeben.`)
-        } finally {
-          setIsTranscribing(false)
-          if (mediaStreamRef.current) {
-            mediaStreamRef.current.getTracks().forEach((track) => track.stop())
-            mediaStreamRef.current = null
-          }
-          mediaRecorderRef.current = null
-          mediaChunksRef.current = []
-          setIsRecording(false)
-        }
-      }
-
-      recorder.start()
+      setNoteError('Mikrofon wird gestartet...')
+      const capture = await startMicrophoneCapture()
+      noteCaptureRef.current = capture
       setIsRecording(true)
-      setNoteError('Aufnahme läuft... tippe erneut auf Sprach-Input zum Stoppen.')
+      setNoteError('Aufnahme laeuft... tippe erneut auf Sprach-Input zum Stoppen.')
       recordingTimeoutRef.current = window.setTimeout(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop()
-        }
+        if (!noteCaptureRef.current) return
+        void stopVoiceCapture()
       }, 30000)
-    } catch {
-      setNoteError('Mikrofonzugriff nicht möglich. Bitte Berechtigung prüfen.')
+    } catch (error) {
+      const message = getMicrophoneErrorMessage(error)
+      setNoteError(message)
       setIsRecording(false)
+      if (noteCaptureRef.current) {
+        void noteCaptureRef.current.cancel()
+        noteCaptureRef.current = null
+      }
     }
   }
 

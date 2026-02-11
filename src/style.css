@@ -2069,7 +2069,7 @@ select {
 
 .payments-page .plans-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(236px, 264px));
+  grid-template-columns: repeat(4, minmax(216px, 252px));
   justify-content: center;
   gap: 14px;
   margin-top: 14px;
@@ -2118,6 +2118,13 @@ select {
   --plan-c4: #9fd9e7;
 }
 
+.payments-page .elea-plan-study {
+  --plan-c1: #4f8a68;
+  --plan-c2: #5ea277;
+  --plan-c3: #75b489;
+  --plan-c4: #9fd2a8;
+}
+
 .payments-page .elea-plan-pro {
   --plan-c1: #2b708a;
   --plan-c2: #2e8297;
@@ -2164,6 +2171,12 @@ select {
   background: rgba(17, 74, 101, 0.76);
   border-color: rgba(195, 236, 250, 0.84);
   color: #eefdff;
+}
+
+.payments-page .elea-plan-study .plan-title-badge {
+  background: rgba(24, 73, 45, 0.78);
+  border-color: rgba(206, 240, 216, 0.86);
+  color: #f0fff4;
 }
 
 .payments-page .elea-plan-pro .plan-title-badge {
@@ -11095,8 +11108,10 @@ select {
   }
 
   .brand-logo {
-    height: 34px;
+    height: 38px;
     max-width: 150px;
+    transform: scale(1.08);
+    transform-origin: left center;
   }
 
   .mobile-topbar-utils {
@@ -11122,6 +11137,11 @@ select {
   .menu-toggle {
     width: 34px;
     height: 34px;
+  }
+
+  .mobile-panic-button {
+    width: 36px;
+    height: 36px;
   }
 
   .nav-mobile-extra {
@@ -11245,8 +11265,10 @@ select {
   }
 
   .brand-logo {
-    height: 32px;
+    height: 36px;
     max-width: 136px;
+    transform: scale(1.08);
+    transform-origin: left center;
   }
 
   .mobile-mental-checker {
@@ -11259,10 +11281,14 @@ select {
     width: 44px;
   }
 
-  .mobile-mental-save,
-  .mobile-panic-button {
+  .mobile-mental-save {
     width: 26px;
     height: 26px;
+  }
+
+  .mobile-panic-button {
+    width: 34px;
+    height: 34px;
   }
 
   .menu-toggle {

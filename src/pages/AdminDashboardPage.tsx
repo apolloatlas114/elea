@@ -333,6 +333,12 @@ const AdminDashboardPage = () => {
                 </strong>
               </div>
               <div className="admin-channel-row">
+                <span>STUDY</span>
+                <strong>
+                  {snapshot?.plans.study ?? 0} ({planPercent(snapshot?.plans.study ?? 0)}%)
+                </strong>
+              </div>
+              <div className="admin-channel-row">
                 <span>BASIC</span>
                 <strong>
                   {snapshot?.plans.basic ?? 0} ({planPercent(snapshot?.plans.basic ?? 0)}%)

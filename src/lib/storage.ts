@@ -1,4 +1,4 @@
-export type Plan = 'free' | 'basic' | 'pro'
+export type Plan = 'free' | 'study' | 'basic' | 'pro'
 
 export type Profile = {
   studiengang: string

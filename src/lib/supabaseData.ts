@@ -69,7 +69,7 @@ export const savePlan = async (userId: string, plan: Plan) => {
 }
 
 export const hasPaidCoachingPlan = async (userId: string, plan: Plan): Promise<boolean> => {
-  if (plan === 'free') return false
+  if (plan === 'free' || plan === 'study') return false
   if (!isEnabled()) return false
 
   const { data, error } = await supabase!
