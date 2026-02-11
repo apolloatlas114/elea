@@ -111,12 +111,22 @@ export type StudyMCQ = {
   options: string[]
   correct: number
   explanation?: string
+  chapterTag?: string
 }
 
 export type StudyQuiz = {
   easy: StudyMCQ[]
   medium: StudyMCQ[]
   hard: StudyMCQ[]
+}
+
+export type StudyQuizQuestionResult = {
+  question: string
+  chapterTag: string
+  level: 'easy' | 'medium' | 'hard'
+  picked: number
+  correct: number
+  isCorrect: boolean
 }
 
 export type StudyQuizAttempt = {
@@ -130,6 +140,7 @@ export type StudyQuizAttempt = {
   startedAt: string
   finishedAt: string
   secondsSpent: number
+  questionResults?: StudyQuizQuestionResult[]
 }
 
 export type StudyTutorSection = {
@@ -376,15 +387,42 @@ const normalizeMcqArray = (value: unknown): StudyMCQ[] => {
       const options = normalizeStringArray(row?.options).slice(0, 6)
       const correct = typeof row?.correct === 'number' ? row.correct : Number(row?.correct)
       const explanation = typeof row?.explanation === 'string' ? row.explanation.trim() : ''
+      const chapterTagRaw = typeof row?.chapterTag === 'string' ? row.chapterTag.trim() : ''
       if (!question || options.length < 2) return null
       const fallbackIndex = 0
       const rawIndex = Number.isFinite(correct) ? Math.trunc(correct) : fallbackIndex
       const correctIndex = Math.min(Math.max(rawIndex, 0), Math.max(options.length - 1, 0))
       const base: StudyMCQ = { question, options, correct: correctIndex }
       if (explanation) base.explanation = explanation
+      base.chapterTag = chapterTagRaw || 'Allgemein'
       return base
     })
     .filter((item): item is StudyMCQ => item !== null)
+}
+
+const normalizeQuestionResults = (value: unknown, fallbackLevel: 'easy' | 'medium' | 'hard') => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((raw): StudyQuizQuestionResult | null => {
+      const row = raw as Record<string, unknown>
+      const question = typeof row?.question === 'string' ? row.question.trim() : ''
+      const chapterTag = typeof row?.chapterTag === 'string' && row.chapterTag.trim() ? row.chapterTag.trim() : 'Allgemein'
+      const level =
+        row?.level === 'easy' || row?.level === 'medium' || row?.level === 'hard' ? row.level : fallbackLevel
+      const picked = typeof row?.picked === 'number' ? row.picked : Number(row?.picked)
+      const correct = typeof row?.correct === 'number' ? row.correct : Number(row?.correct)
+      const isCorrect = typeof row?.isCorrect === 'boolean' ? row.isCorrect : picked === correct
+      if (!question || !Number.isFinite(picked) || !Number.isFinite(correct)) return null
+      return {
+        question,
+        chapterTag,
+        level,
+        picked: Math.max(-1, Math.trunc(picked)),
+        correct: Math.max(0, Math.trunc(correct)),
+        isCorrect,
+      }
+    })
+    .filter((item): item is StudyQuizQuestionResult => item !== null)
 }
 
 const normalizeQuizHistoryArray = (value: unknown, materialId: string, now: string): StudyQuizAttempt[] => {
@@ -410,8 +448,9 @@ const normalizeQuizHistoryArray = (value: unknown, materialId: string, now: stri
       const safeCorrect = Math.min(Math.max(Math.trunc(correct), 0), Math.trunc(total))
       const safePercent =
         Number.isFinite(percent) && percent > 0 ? Math.min(Math.max(percent, 0), 100) : (safeCorrect / total) * 100
+      const questionResults = normalizeQuestionResults(row?.questionResults, level)
 
-      return {
+      const baseAttempt: StudyQuizAttempt = {
         id,
         materialId,
         level,
@@ -423,6 +462,10 @@ const normalizeQuizHistoryArray = (value: unknown, materialId: string, now: stri
         finishedAt,
         secondsSpent: Number.isFinite(secondsSpent) ? Math.max(Math.trunc(secondsSpent), 0) : 0,
       }
+      if (questionResults.length > 0) {
+        baseAttempt.questionResults = questionResults
+      }
+      return baseAttempt
     })
     .filter((item): item is StudyQuizAttempt => item !== null)
     .sort((a, b) => parseTimestamp(b.finishedAt) - parseTimestamp(a.finishedAt))

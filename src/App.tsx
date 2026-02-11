@@ -331,6 +331,38 @@ const AppLayout = () => {
           <img className="brand-logo" src="/elealogoneu.png" alt="ELEA" />
         </div>
 
+        <div className={`mobile-topbar-utils ${stressSaved ? 'saved' : ''}`} aria-label="Mobile Schnellaktionen">
+          <div className="mobile-mental-checker">
+            <span className="mobile-mental-label">MH</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={stress.value}
+              onChange={(event) => stress.setValue(Number(event.target.value))}
+              aria-label="Mental Health Wert"
+            />
+            <span className="mobile-mental-value">{stress.value}</span>
+          </div>
+          <button
+            className={`mobile-mental-save ${stressSaved ? 'saved' : ''}`}
+            onClick={handleStressSave}
+            disabled={!stress.canSave}
+            aria-label="Mental Health speichern"
+            title="Mental Health speichern"
+          >
+            💾
+          </button>
+          <button
+            className="mobile-panic-button"
+            onClick={() => setPanicOpen(true)}
+            aria-label="Panic Button"
+            title="Panic Button"
+          >
+            <img src="/panicbutton.png" alt="Panic Button" />
+          </button>
+        </div>
+
         <nav id="primary-nav" className={`nav ${menuOpen ? 'open' : ''}`}>
           {navItems.map((item) => (
             <NavLink
@@ -348,6 +380,32 @@ const AppLayout = () => {
               <span className="nav-sr">{item.label}</span>
             </NavLink>
           ))}
+          <NavLink
+            className={({ isActive }) => `nav-pill nav-mobile-extra ${isActive ? 'active' : ''}`}
+            to="/profile"
+            title="Profil"
+            aria-label="Profil"
+            onClick={() => setMenuOpen(false)}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              {renderNavIcon('users')}
+            </span>
+            <span className="nav-tooltip">Profil</span>
+            <span className="nav-sr">Profil</span>
+          </NavLink>
+          <NavLink
+            className={({ isActive }) => `nav-pill nav-mobile-extra ${isActive ? 'active' : ''}`}
+            to="/payments"
+            title="Pläne"
+            aria-label="Pläne"
+            onClick={() => setMenuOpen(false)}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              {renderNavIcon('settings')}
+            </span>
+            <span className="nav-tooltip">Pläne</span>
+            <span className="nav-sr">Pläne</span>
+          </NavLink>
         </nav>
 
         <div className="top-actions">

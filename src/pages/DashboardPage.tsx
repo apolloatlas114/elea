@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCountdown } from '../hooks/useCountdown'
 import { useStress } from '../hooks/useStress'
 import { useAuth } from '../context/AuthContext'
+import { EleaFeatureOrbit } from '../components/EleaFeatureOrbit'
+import { groqChatJsonWithFallback } from '../lib/groq'
 import type {
   AssessmentResult,
   BookingEntry,
@@ -10,10 +12,12 @@ import type {
   Plan,
   Profile,
   SchoolProgress,
+  StudyMaterial,
+  StudyQuiz,
   ThesisDocument,
   TodoItem,
 } from '../lib/storage'
-import { STORAGE_KEYS, TIME_SLOTS, formatCountdown, normalizeTodos, parseJson, todayIso } from '../lib/storage'
+import { STORAGE_KEYS, TIME_SLOTS, formatCountdown, normalizeStudyMaterials, normalizeTodos, parseJson, todayIso } from '../lib/storage'
 import {
   appendDeadlineLog,
   hasPaidCoachingPlan,
@@ -24,6 +28,8 @@ import {
   loadSchoolProgress,
   loadThesisDocuments,
   loadTodos,
+  replaceStudyMaterials,
+  replaceTodos,
   saveAssessment,
   saveBooking,
   savePlan,
@@ -51,6 +57,20 @@ type AssessmentQuestion = {
   id: string
   title: string
   options: AssessmentOption[]
+}
+
+type EleaExplainResponse = {
+  explanation: string
+  examples: string[]
+  nextSteps: string[]
+}
+
+type EleaQuizQuestion = {
+  question: string
+  options: string[]
+  correct: number
+  explanation?: string
+  chapterTag?: string
 }
 
 const assessmentQuestions: AssessmentQuestion[] = [
@@ -273,9 +293,22 @@ const DashboardPage = () => {
   const [activeDate, setActiveDate] = useState(() => todayIso())
   const [supportDraft, setSupportDraft] = useState('')
   const [supportNotice, setSupportNotice] = useState<{ type: 'ok' | 'warn'; text: string } | null>(null)
+  const [askEleaOpen, setAskEleaOpen] = useState(false)
+  const [askEleaQuestion, setAskEleaQuestion] = useState('')
+  const [askEleaAnswer, setAskEleaAnswer] = useState<EleaExplainResponse | null>(null)
+  const [askEleaQuiz, setAskEleaQuiz] = useState<EleaQuizQuestion[]>([])
+  const [askEleaBusy, setAskEleaBusy] = useState(false)
+  const [askEleaQuizBusy, setAskEleaQuizBusy] = useState(false)
+  const [askEleaRecording, setAskEleaRecording] = useState(false)
+  const [askEleaTranscribing, setAskEleaTranscribing] = useState(false)
+  const [askEleaNotice, setAskEleaNotice] = useState<{ type: 'ok' | 'warn'; text: string } | null>(null)
   const [commitmentSeen, setCommitmentSeen] = useState<boolean>(() =>
     parseJson(localStorage.getItem(STORAGE_KEYS.commitmentSeen), false)
   )
+  const askMediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const askMediaStreamRef = useRef<MediaStream | null>(null)
+  const askMediaChunksRef = useRef<Blob[]>([])
+  const askRecordingTimeoutRef = useRef<number | null>(null)
   const navigate = useNavigate()
   const { user } = useAuth()
   const stress = useStress(user?.id)
@@ -565,7 +598,14 @@ const DashboardPage = () => {
     if (!inWeek) setActiveDate(weekDays[0].iso)
   }, [activeDate, weekDays])
 
-  const todosForDay = useMemo(() => todos.filter((todo) => todo.date === activeDate), [activeDate, todos])
+  const todosForDay = useMemo(
+    () =>
+      todos.filter(
+        (todo) =>
+          todo.date === activeDate && !todo.title.trim().toLowerCase().startsWith('frag elea:')
+      ),
+    [activeDate, todos]
+  )
 
   const getTodoInitials = (title: string) => {
     const cleaned = title.trim()
@@ -644,6 +684,325 @@ const DashboardPage = () => {
     setBookingOpen((prev) => !prev)
   }
 
+  useEffect(() => {
+    return () => {
+      if (askRecordingTimeoutRef.current) {
+        window.clearTimeout(askRecordingTimeoutRef.current)
+      }
+      if (askMediaRecorderRef.current && askMediaRecorderRef.current.state !== 'inactive') {
+        askMediaRecorderRef.current.stop()
+      }
+      if (askMediaStreamRef.current) {
+        askMediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }, [])
+
+  const runEleaExplain = async (question: string) => {
+    const apiKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
+    const preferredModel = (import.meta.env.VITE_GROQ_CHAT_MODEL as string | undefined) || 'llama-3.3-70b-versatile'
+    const models = [preferredModel, 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'gemma2-9b-it']
+    if (!apiKey) {
+      throw new Error('VITE_GROQ_API_KEY fehlt in .env.local.')
+    }
+
+    const system =
+      'Du bist Elea, eine freundliche Thesis-Mentorin. Antworte auf Deutsch, sehr einfach, klar und kurz. Nutze nur gueltiges JSON.'
+    const userPrompt = `Frage:\n${question}\n\nGib genau dieses JSON-Format zurueck:\n{\n  "explanation": "string (einfach erklaert)",\n  "examples": ["string", "string", "string"],\n  "nextSteps": ["string", "string", "string"]\n}\n\nRegeln:\n- fuer Studierende leicht verstaendlich\n- konkrete Beispiele\n- naechste Schritte als direkte Handlungsanweisungen`
+
+    const { parsed } = await groqChatJsonWithFallback<EleaExplainResponse>({
+      apiKey,
+      models,
+      system,
+      user: userPrompt,
+      temperature: 0.2,
+      maxTokens: 1100,
+    })
+
+    if (!parsed || typeof parsed.explanation !== 'string') {
+      throw new Error('Antwort konnte nicht verarbeitet werden. Bitte erneut fragen.')
+    }
+    return {
+      explanation: parsed.explanation.trim(),
+      examples: Array.isArray(parsed.examples) ? parsed.examples.filter(Boolean).slice(0, 5) : [],
+      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.filter(Boolean).slice(0, 5) : [],
+    } satisfies EleaExplainResponse
+  }
+
+  const askElea = async () => {
+    const question = askEleaQuestion.trim()
+    if (!question) {
+      setAskEleaNotice({ type: 'warn', text: 'Bitte zuerst eine Frage eingeben oder aufnehmen.' })
+      return
+    }
+    setAskEleaNotice(null)
+    setAskEleaBusy(true)
+    setAskEleaAnswer(null)
+    setAskEleaQuiz([])
+    try {
+      const answer = await runEleaExplain(question)
+      setAskEleaAnswer(answer)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Antwort konnte nicht erstellt werden.'
+      setAskEleaNotice({ type: 'warn', text: message })
+    } finally {
+      setAskEleaBusy(false)
+    }
+  }
+
+  const persistTodosForMyThesis = async (updater: (current: TodoItem[]) => TodoItem[]) => {
+    const currentTodos = normalizeTodos(parseJson(localStorage.getItem(STORAGE_KEYS.todos), []))
+    const nextTodos = updater(currentTodos)
+    localStorage.setItem(STORAGE_KEYS.todos, JSON.stringify(nextTodos))
+    setTodos(nextTodos)
+    if (user?.id) {
+      replaceTodos(user.id, nextTodos).catch((error) => {
+        console.error('Todos speichern fehlgeschlagen', error)
+      })
+    }
+    return nextTodos
+  }
+
+  const normalizeAskEleaQuizRows = (rows: unknown): EleaQuizQuestion[] => {
+    if (!Array.isArray(rows)) return []
+    return rows
+      .map((item) => ({
+        question: typeof item?.question === 'string' ? item.question.trim() : '',
+        options: Array.isArray(item?.options) ? item.options.map((opt: unknown) => String(opt)).slice(0, 4) : [],
+        correct: Number.isFinite(item?.correct) ? Math.max(0, Math.min(3, Number(item.correct))) : 0,
+        explanation: typeof item?.explanation === 'string' ? item.explanation.trim() : '',
+        chapterTag: typeof item?.chapterTag === 'string' && item.chapterTag.trim() ? item.chapterTag.trim() : 'Frag Elea',
+      }))
+      .filter((item) => item.question.length > 0 && item.options.length === 4)
+      .slice(0, 5)
+  }
+
+  const persistStudyMaterialForMyThesis = async (material: StudyMaterial) => {
+    const currentStudy = normalizeStudyMaterials(parseJson(localStorage.getItem(STORAGE_KEYS.studyMaterials), []))
+    const nextStudy = [material, ...currentStudy.filter((item) => item.id !== material.id)]
+    localStorage.setItem(STORAGE_KEYS.studyMaterials, JSON.stringify(nextStudy))
+    if (user?.id) {
+      replaceStudyMaterials(user.id, nextStudy).catch((error) => {
+        console.error('Study-Materialien speichern fehlgeschlagen', error)
+      })
+    }
+    return nextStudy
+  }
+
+  const createTaskFromAskElea = () => {
+    const question = askEleaQuestion.trim()
+    if (!question) {
+      setAskEleaNotice({ type: 'warn', text: 'Keine Frage vorhanden, aus der eine Aufgabe erstellt werden kann.' })
+      return
+    }
+    const taskTitle = `Frag Elea: ${question.slice(0, 52)}${question.length > 52 ? '...' : ''}`
+    const taskDetail = askEleaAnswer?.nextSteps?.[0] || 'Aus der Elea-Erklaerung ableiten und umsetzen.'
+    const date = todayIso()
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `todo-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    void persistTodosForMyThesis((current) => [{ id, title: taskTitle, detail: taskDetail, date, done: false }, ...current])
+    setAskEleaNotice({ type: 'ok', text: 'Aufgabe gespeichert in My Thesis > Aufgaben.' })
+  }
+
+  const buildQuizFromAskElea = async () => {
+    const question = askEleaQuestion.trim()
+    const answer = askEleaAnswer
+    if (!question || !answer) {
+      setAskEleaNotice({ type: 'warn', text: 'Bitte zuerst eine Frage stellen und Antwort erzeugen.' })
+      return
+    }
+    const apiKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
+    const preferredModel = (import.meta.env.VITE_GROQ_CHAT_MODEL as string | undefined) || 'llama-3.3-70b-versatile'
+    const models = [preferredModel, 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'gemma2-9b-it']
+    if (!apiKey) {
+      setAskEleaNotice({ type: 'warn', text: 'VITE_GROQ_API_KEY fehlt in .env.local.' })
+      return
+    }
+
+    setAskEleaQuizBusy(true)
+    try {
+      const { parsed } = await groqChatJsonWithFallback<{
+        easy: EleaQuizQuestion[]
+        medium: EleaQuizQuestion[]
+        hard: EleaQuizQuestion[]
+      }>({
+        apiKey,
+        models,
+        system: 'Du erstellst Lernquiz fuer Studierende. Antworte nur als gueltiges JSON.',
+        user: `Erzeuge ein Lernlabor-Quiz mit drei Levels (easy, medium, hard), jeweils 5 MCQs mit je 4 Optionen.\nFrage: ${question}\nErklaerung: ${answer.explanation}\nBeispiele: ${answer.examples.join(' | ')}\n\nJSON-Format:\n{"easy":[{"question":"string","options":["a","b","c","d"],"correct":0,"explanation":"string","chapterTag":"string"}],"medium":[{"question":"string","options":["a","b","c","d"],"correct":0,"explanation":"string","chapterTag":"string"}],"hard":[{"question":"string","options":["a","b","c","d"],"correct":0,"explanation":"string","chapterTag":"string"}]}`,
+        temperature: 0.22,
+        maxTokens: 2300,
+      })
+
+      const easy = normalizeAskEleaQuizRows(parsed?.easy)
+      const medium = normalizeAskEleaQuizRows(parsed?.medium)
+      const hard = normalizeAskEleaQuizRows(parsed?.hard)
+      const fallback = medium.length > 0 ? medium : easy.length > 0 ? easy : hard
+      const quizSets: StudyQuiz = {
+        easy: easy.length > 0 ? easy : fallback,
+        medium: medium.length > 0 ? medium : fallback,
+        hard: hard.length > 0 ? hard : fallback,
+      }
+
+      if (quizSets.easy.length === 0 || quizSets.medium.length === 0 || quizSets.hard.length === 0) {
+        throw new Error('Quiz konnte nicht erzeugt werden.')
+      }
+
+      setAskEleaQuiz(quizSets.medium)
+
+      const timestamp = new Date().toISOString()
+      const materialId =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `study-${Date.now()}-${Math.random().toString(16).slice(2)}`
+      const titleSeed = question.slice(0, 48).trim()
+      const material: StudyMaterial = {
+        id: materialId,
+        name: titleSeed.length > 0 ? `Frag-Elea Quiz: ${titleSeed}` : `Frag-Elea Quiz ${todayIso()}`,
+        size: 0,
+        pageCount: 0,
+        uploadedAt: timestamp,
+        status: 'ready',
+        tutor: {
+          title: titleSeed.length > 0 ? titleSeed : 'Frag Elea',
+          intro: answer.explanation,
+          keyTakeaways: answer.nextSteps.slice(0, 6),
+          sections: [
+            {
+              heading: 'Beispiele',
+              bullets: answer.nextSteps.slice(0, 6),
+              definitions: [],
+              examples: answer.examples.slice(0, 6),
+              questions: [question],
+            },
+          ],
+        },
+        quiz: quizSets,
+        quizHistory: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }
+
+      await persistStudyMaterialForMyThesis(material)
+      setAskEleaNotice({ type: 'ok', text: 'Quiz erstellt und in My Thesis > Lernlabor gespeichert.' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Quiz konnte nicht erstellt werden.'
+      setAskEleaNotice({ type: 'warn', text: message })
+    } finally {
+      setAskEleaQuizBusy(false)
+    }
+  }
+
+  const toggleAskEleaRecording = async () => {
+    if (askEleaTranscribing) return
+
+    if (askEleaRecording && askMediaRecorderRef.current && askMediaRecorderRef.current.state !== 'inactive') {
+      askMediaRecorderRef.current.stop()
+      return
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setAskEleaNotice({ type: 'warn', text: 'Audioaufnahme wird auf diesem Gerät/Browser nicht unterstützt.' })
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      askMediaStreamRef.current = stream
+      askMediaChunksRef.current = []
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+          ? 'audio/mp4'
+          : undefined
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      askMediaRecorderRef.current = recorder
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          askMediaChunksRef.current.push(event.data)
+        }
+      }
+
+      recorder.onstop = async () => {
+        if (askRecordingTimeoutRef.current) {
+          window.clearTimeout(askRecordingTimeoutRef.current)
+          askRecordingTimeoutRef.current = null
+        }
+        setAskEleaRecording(false)
+        setAskEleaTranscribing(true)
+        try {
+          const audioType = recorder.mimeType || 'audio/webm'
+          const ext = audioType.includes('mp4') ? 'm4a' : 'webm'
+          const audioBlob = new Blob(askMediaChunksRef.current, { type: audioType })
+          if (audioBlob.size === 0) {
+            throw new Error('Keine Audioaufnahme erkannt.')
+          }
+
+          const endpoint = import.meta.env.VITE_TRANSCRIBE_ENDPOINT || '/api/transcribe'
+          const formData = new FormData()
+          formData.append('file', audioBlob, `ask-elea-${Date.now()}.${ext}`)
+
+          let transcript = ''
+          const response = await fetch(endpoint, { method: 'POST', body: formData })
+          if (response.ok) {
+            const payload = (await response.json().catch(() => ({}))) as { text?: string; transcript?: string }
+            transcript = (payload?.transcript || payload?.text || '').trim()
+          } else {
+            const groqKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
+            if (!groqKey) throw new Error('Transkription fehlgeschlagen.')
+            const groqForm = new FormData()
+            groqForm.append('file', audioBlob, `ask-elea-${Date.now()}.${ext}`)
+            groqForm.append('model', 'whisper-large-v3-turbo')
+            groqForm.append('language', 'de')
+            const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${groqKey}` },
+              body: groqForm,
+            })
+            const groqPayload = (await groqRes.json().catch(() => ({}))) as { text?: string; error?: { message?: string } }
+            if (!groqRes.ok) {
+              throw new Error(groqPayload?.error?.message || 'Transkription fehlgeschlagen.')
+            }
+            transcript = (groqPayload?.text || '').trim()
+          }
+
+          if (!transcript) throw new Error('Kein Transkript erkannt.')
+          setAskEleaQuestion((prev) => `${prev.trim()} ${transcript}`.trim())
+          setAskEleaNotice({ type: 'ok', text: 'Frage aus Audio übernommen.' })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Transkription fehlgeschlagen.'
+          setAskEleaNotice({ type: 'warn', text: message })
+        } finally {
+          setAskEleaTranscribing(false)
+          if (askMediaStreamRef.current) {
+            askMediaStreamRef.current.getTracks().forEach((track) => track.stop())
+            askMediaStreamRef.current = null
+          }
+          askMediaRecorderRef.current = null
+          askMediaChunksRef.current = []
+        }
+      }
+
+      recorder.start()
+      setAskEleaRecording(true)
+      setAskEleaNotice({ type: 'ok', text: 'Aufnahme läuft... tippe erneut zum Stoppen.' })
+      askRecordingTimeoutRef.current = window.setTimeout(() => {
+        if (askMediaRecorderRef.current && askMediaRecorderRef.current.state !== 'inactive') {
+          askMediaRecorderRef.current.stop()
+        }
+      }, 30000)
+    } catch {
+      setAskEleaNotice({ type: 'warn', text: 'Mikrofonzugriff nicht möglich. Bitte Browser-Berechtigung prüfen.' })
+      setAskEleaRecording(false)
+    }
+  }
+
   return (
     <>
       <main className="dashboard">
@@ -714,7 +1073,25 @@ const DashboardPage = () => {
           <div className="hero-card">
             <div className={`hero-visual ${showDocs ? '' : 'single'}`}>
               <div className="hero-visual-card brain-card">
-                <img className="brain-image" src="/brain-hero.png" alt="Gehirn" />
+                <button className="brain-elea-hint" type="button" onClick={() => setAskEleaOpen(true)}>
+                  <span className="brain-elea-grid" />
+                  <span className="brain-elea-glow" />
+                  <span className="brain-elea-content">
+                    <span className="brain-elea-dot" />
+                    <span className="brain-elea-text">Frag Elea</span>
+                    <span className="brain-elea-mic" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path
+                          d="M12 3a3 3 0 0 0-3 3v5a3 3 0 1 0 6 0V6a3 3 0 0 0-3-3Zm-6 8v.8a6 6 0 0 0 5 5.92V20H8.8a1 1 0 0 0 0 2h6.4a1 1 0 1 0 0-2H13v-2.28a6 6 0 0 0 5-5.92V11a1 1 0 1 0-2 0v.8a4 4 0 1 1-8 0V11a1 1 0 1 0-2 0Z"
+                          fill="currentColor"
+                        />
+                      </svg>
+                    </span>
+                  </span>
+                </button>
+                <button className="brain-image-trigger" type="button" onClick={() => setAskEleaOpen(true)} aria-label="Frag Elea öffnen">
+                  <img className="brain-image" src="/brain-hero.png" alt="Gehirn" />
+                </button>
                 <div className="hero-float left">
                   <div className="metric floating">
                     <span>Fortschritt</span>
@@ -831,6 +1208,7 @@ const DashboardPage = () => {
             <div className="panel-head">
               <h3>Betreuungsplan</h3>
             </div>
+            <EleaFeatureOrbit />
             <div className="plan-item">
               <div className="plan-main">
                 <div className="plan-avatar">
@@ -860,8 +1238,8 @@ const DashboardPage = () => {
                 </div>
                 <div>
                   <div className="plan-title plan-title-secondary">
-                    <span className="plan-call-strong">1zu1 Call</span>{' '}
-                    <span className="plan-call-name">Dr. Anna Horrer</span>
+                    <span className="plan-call-strong">Deine Thesis-Mentorin</span>{' '}
+                    <span className="plan-call-name">Dr. Anna Horrer, LMU Muenchen</span>
                   </div>
                   {bookingLabel && <div className="plan-sub">Nächster Termin: {bookingLabel}</div>}
                 </div>
@@ -956,6 +1334,104 @@ const DashboardPage = () => {
 
         </aside>
       </main>
+
+      {askEleaOpen && (
+        <div className="modal-backdrop" onClick={() => setAskEleaOpen(false)}>
+          <div className="modal elea-ask-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="elea-ask-head">
+              <h2>Frag Elea</h2>
+              <button className="ghost" type="button" onClick={() => setAskEleaOpen(false)}>
+                Schließen
+              </button>
+            </div>
+            <p className="elea-ask-subline">
+              Stelle eine Frage per Text oder Mikrofon. Du bekommst eine einfache Erklärung mit Beispielen und nächsten Schritten.
+            </p>
+            <div className="elea-ask-input">
+              <textarea
+                value={askEleaQuestion}
+                onChange={(event) => {
+                  setAskEleaQuestion(event.target.value)
+                  if (askEleaNotice) setAskEleaNotice(null)
+                }}
+                placeholder="z. B. Erkläre Integralrechnung einfach."
+              />
+              <div className="elea-ask-actions">
+                <button className="ghost" type="button" onClick={toggleAskEleaRecording} disabled={askEleaTranscribing || askEleaBusy}>
+                  {askEleaRecording ? 'Aufnahme stoppen' : askEleaTranscribing ? 'Transkribiere...' : 'Mikrofon'}
+                </button>
+                <button className="primary" type="button" onClick={askElea} disabled={askEleaBusy || askEleaTranscribing}>
+                  {askEleaBusy ? 'Antwort wird erstellt...' : 'Antwort holen'}
+                </button>
+              </div>
+            </div>
+
+            {askEleaNotice && <div className={`support-notice ${askEleaNotice.type}`}>{askEleaNotice.text}</div>}
+
+            {askEleaAnswer && (
+              <div className="elea-ask-answer">
+                <h3>Einfach erklärt</h3>
+                <p>{askEleaAnswer.explanation}</p>
+
+                {askEleaAnswer.examples.length > 0 && (
+                  <div className="elea-ask-block">
+                    <h4>Beispiele</h4>
+                    <ul>
+                      {askEleaAnswer.examples.map((example) => (
+                        <li key={example}>{example}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {askEleaAnswer.nextSteps.length > 0 && (
+                  <div className="elea-ask-block">
+                    <h4>Nächste Schritte</h4>
+                    <ol>
+                      {askEleaAnswer.nextSteps.map((step) => (
+                        <li key={step}>{step}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                <div className="elea-ask-cta-row">
+                  <button className="ghost" type="button" onClick={buildQuizFromAskElea} disabled={askEleaQuizBusy}>
+                    {askEleaQuizBusy ? 'Quiz wird erstellt...' : 'Quiz erstellen'}
+                  </button>
+                  <button className="ghost" type="button" onClick={createTaskFromAskElea}>
+                    Aufgabe erstellen
+                  </button>
+                  <button className="ghost" type="button" onClick={() => navigate('/my-thesis')}>
+                    Zu My Thesis
+                  </button>
+                </div>
+
+                {askEleaQuiz.length > 0 && (
+                  <div className="elea-ask-quiz">
+                    <h4>Mini-Quiz</h4>
+                    <div className="elea-ask-quiz-list">
+                      {askEleaQuiz.map((item, index) => (
+                        <div key={`${item.question}-${index}`} className="elea-ask-quiz-item">
+                          <strong>
+                            {index + 1}. {item.question}
+                          </strong>
+                          <ul>
+                            {item.options.map((option, optionIndex) => (
+                              <li key={`${item.question}-${optionIndex}`}>{option}</li>
+                            ))}
+                          </ul>
+                          {item.explanation && <small>{item.explanation}</small>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showOnboarding && (
         <OnboardingModal

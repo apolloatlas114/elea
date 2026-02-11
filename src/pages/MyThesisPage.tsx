@@ -53,6 +53,7 @@ import {
 import type {
   AssessmentResult,
   Plan,
+  StudyMCQ,
   StudyMaterial,
   StudyQuiz,
   StudyQuizAttempt,
@@ -153,6 +154,63 @@ type NoteDraft = {
   linkedDocumentId: string
   linkedTodoId: string
 }
+type OverviewSearchResult = {
+  id: string
+  type: 'document' | 'task' | 'note'
+  title: string
+  meta: string
+}
+
+type ChapterPerformance = {
+  chapter: string
+  total: number
+  correct: number
+  wrong: number
+  percent: number
+}
+
+const toChapterTag = (value: string | undefined, fallback: string) => {
+  const clean = (value ?? '').trim()
+  return clean.length > 0 ? clean : fallback
+}
+
+const sanitizeQuizRows = (rows: StudyMCQ[] | undefined, fallbackChapters: string[]): StudyMCQ[] => {
+  if (!Array.isArray(rows)) return []
+  const result: StudyMCQ[] = []
+  rows.forEach((row, index) => {
+    const question = typeof row?.question === 'string' ? row.question.trim() : ''
+    const options = Array.isArray(row?.options) ? row.options.map((opt) => String(opt)).slice(0, 4) : []
+    if (!question || options.length < 4) return
+    const fallbackTag = fallbackChapters[index % Math.max(fallbackChapters.length, 1)] || `Kapitel ${index + 1}`
+    const chapterTag = toChapterTag(typeof row?.chapterTag === 'string' ? row.chapterTag : '', fallbackTag)
+    const correctRaw = Number.isFinite(row?.correct) ? Number(row.correct) : 0
+    const correct = Math.max(0, Math.min(options.length - 1, Math.trunc(correctRaw)))
+    const explanation = typeof row?.explanation === 'string' ? row.explanation.trim() : ''
+    result.push({
+      question,
+      options,
+      correct,
+      chapterTag,
+      ...(explanation ? { explanation } : {}),
+    })
+  })
+  return result.slice(0, 5)
+}
+
+const buildTaggedQuiz = (quiz: StudyQuiz | undefined, fallbackChapters: string[]): StudyQuiz | null => {
+  if (!quiz) return null
+  const safeFallback = fallbackChapters.length > 0 ? fallbackChapters : ['Allgemein']
+  const easy = sanitizeQuizRows(quiz.easy, safeFallback)
+  const medium = sanitizeQuizRows(quiz.medium, safeFallback)
+  const hard = sanitizeQuizRows(quiz.hard, safeFallback)
+  const backup = medium.length > 0 ? medium : easy.length > 0 ? easy : hard
+  if (backup.length === 0) return null
+  return {
+    easy: easy.length > 0 ? easy : backup,
+    medium: medium.length > 0 ? medium : backup,
+    hard: hard.length > 0 ? hard : backup,
+  }
+}
 
 const MyThesisPage = () => {
   const navigate = useNavigate()
@@ -210,7 +268,7 @@ const MyThesisPage = () => {
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [studyError, setStudyError] = useState('')
   const [studyActiveId, setStudyActiveId] = useState<string>('')
-  const [studyActiveTab, setStudyActiveTab] = useState<'learn' | 'test' | 'save'>('learn')
+  const [studyActiveTab, setStudyActiveTab] = useState<'learn' | 'test' | 'weakness'>('learn')
   const [studyBusy, setStudyBusy] = useState(false)
   const [studyProgress, setStudyProgress] = useState<{ label: string; percent: number } | null>(null)
   const [studyQuizLevel, setStudyQuizLevel] = useState<'easy' | 'medium' | 'hard'>('medium')
@@ -221,6 +279,9 @@ const MyThesisPage = () => {
   const [studyQuizAttemptId, setStudyQuizAttemptId] = useState('')
   const [studyQuizStartedAt, setStudyQuizStartedAt] = useState('')
   const [studyQuizTotalSeconds, setStudyQuizTotalSeconds] = useState(0)
+  const [studyWeaknessBusy, setStudyWeaknessBusy] = useState(false)
+  const [studyWeaknessNotice, setStudyWeaknessNotice] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [overviewSearchQuery, setOverviewSearchQuery] = useState('')
 
   const { user } = useAuth()
   const profile = useStoredProfile()
@@ -386,6 +447,47 @@ const MyThesisPage = () => {
       studyQuizAttempts.length
     return snapUniGrade(avg)
   }, [studyQuizAttempts])
+  const answeredQuizQuestionsCount = useMemo(
+    () =>
+      studyQuizAttempts.reduce((sum, attempt) => {
+        if (Array.isArray(attempt.questionResults) && attempt.questionResults.length > 0) {
+          return sum + attempt.questionResults.filter((row) => row.picked >= 0).length
+        }
+        return sum + Math.max(0, Math.trunc(attempt.total))
+      }, 0),
+    [studyQuizAttempts]
+  )
+  const chapterPerformance = useMemo<ChapterPerformance[]>(() => {
+    const map = new Map<string, { total: number; correct: number; wrong: number }>()
+    studyQuizAttempts.forEach((attempt) => {
+      ;(attempt.questionResults ?? []).forEach((row) => {
+        if (row.picked < 0) return
+        const chapter = toChapterTag(row.chapterTag, 'Allgemein')
+        const current = map.get(chapter) ?? { total: 0, correct: 0, wrong: 0 }
+        current.total += 1
+        if (row.isCorrect) current.correct += 1
+        else current.wrong += 1
+        map.set(chapter, current)
+      })
+    })
+
+    return Array.from(map.entries())
+      .map(([chapter, values]) => ({
+        chapter,
+        total: values.total,
+        correct: values.correct,
+        wrong: values.wrong,
+        percent: values.total > 0 ? Math.round((values.correct / values.total) * 100) : 0,
+      }))
+      .sort((a, b) => {
+        if (a.percent !== b.percent) return a.percent - b.percent
+        return b.total - a.total
+      })
+  }, [studyQuizAttempts])
+  const weakChapterPerformance = useMemo(
+    () => chapterPerformance.filter((item) => item.total > 0 && item.percent < 60),
+    [chapterPerformance]
+  )
   const activeStudyMaterial = useMemo(
     () => studyMaterials.find((material) => material.id === studyActiveId) ?? null,
     [studyMaterials, studyActiveId]
@@ -743,8 +845,22 @@ const MyThesisPage = () => {
 
     const finishedAt = new Date().toISOString()
     const questions = material.quiz?.[studyQuizLevel] ?? []
+    const questionResults = questions.map((q, idx) => {
+      const pickedRaw = studyQuizAnswers[idx]
+      const picked = typeof pickedRaw === 'number' ? pickedRaw : -1
+      const chapterTag = toChapterTag(q.chapterTag, `Kapitel ${idx + 1}`)
+      return {
+        question: q.question,
+        chapterTag,
+        level: studyQuizLevel,
+        picked,
+        correct: q.correct,
+        isCorrect: picked >= 0 && picked === q.correct,
+      }
+    })
+    const answeredCount = questionResults.filter((row) => row.picked >= 0).length
     const total = questions.length
-    const correct = questions.filter((q, idx) => studyQuizAnswers[idx] === q.correct).length
+    const correct = questionResults.filter((row) => row.isCorrect).length
     const percent = total > 0 ? Math.round((correct / total) * 100) : 0
     const grade = gradeFromPercent(percent)
     const secondsSpent = studyQuizTotalSeconds > 0 ? Math.max(0, studyQuizTotalSeconds - studyQuizSecondsLeft) : 0
@@ -760,6 +876,7 @@ const MyThesisPage = () => {
       startedAt: studyQuizStartedAt || finishedAt,
       finishedAt,
       secondsSpent,
+      questionResults: questionResults.slice(0, answeredCount > 0 ? questionResults.length : 0),
     }
 
     setStudyMaterials((prev) =>
@@ -928,7 +1045,7 @@ const MyThesisPage = () => {
 
       const quizSystem =
         'Du bist ein Tutor. Antworte ausschließlich mit gültigem JSON. Keine Markdown-Fences.'
-      const quizUser = `Erstelle 3 Sets a 5 Multiple-Choice-Fragen (easy, medium, hard).\n\nJSON-Format:\n{\n  \"easy\": [{\"question\": string, \"options\": string[], \"correct\": number, \"explanation\": string}],\n  \"medium\": [...],\n  \"hard\": [...]\n}\n\nRegeln:\n- genau 4 Optionen pro Frage\n- genau 1 korrekt\n- gute Distraktoren aus dem Stoff\n- erklaere kurz warum richtig\n\nStoff:\n${JSON.stringify(outlinePayload)}\n`
+      const quizUser = `Erstelle 3 Sets a 5 Multiple-Choice-Fragen (easy, medium, hard).\n\nJSON-Format:\n{\n  \"easy\": [{\"question\": string, \"options\": string[], \"correct\": number, \"explanation\": string, \"chapterTag\": string}],\n  \"medium\": [...],\n  \"hard\": [...]\n}\n\nRegeln:\n- genau 4 Optionen pro Frage\n- genau 1 korrekt\n- jede Frage braucht ein chapterTag\n- gute Distraktoren aus dem Stoff\n- erklaere kurz warum richtig\n\nStoff:\n${JSON.stringify(outlinePayload)}\n`
 
       const quizResult = await groqChatJsonWithFallback<StudyQuiz>({
         apiKey: groqKey,
@@ -939,7 +1056,9 @@ const MyThesisPage = () => {
         maxTokens: 2200,
       })
 
-      const isReady = Boolean(tutorResult.parsed && quizResult.parsed)
+      const chapterFallbacks = (tutorResult.parsed?.sections ?? []).map((section) => section.heading).filter(Boolean)
+      const taggedQuiz = buildTaggedQuiz(quizResult.parsed ?? undefined, chapterFallbacks)
+      const isReady = Boolean(tutorResult.parsed && taggedQuiz)
       if (!isReady) {
         const message = 'Analyse unvollständig. Bitte erneut versuchen oder ein kleineres PDF nutzen.'
         // Requested: remove errored materials immediately (no "Fehler" entries in the list).
@@ -954,7 +1073,7 @@ const MyThesisPage = () => {
         pageCount,
         status: 'ready',
         tutor: tutorResult.parsed ?? undefined,
-        quiz: quizResult.parsed ?? undefined,
+        quiz: taggedQuiz ?? undefined,
         updatedAt: new Date().toISOString(),
       }
 
@@ -972,46 +1091,169 @@ const MyThesisPage = () => {
     }
   }
 
-  const saveStudyAsNote = (material: StudyMaterial) => {
-    const tutor = material.tutor
-    if (!tutor) {
-      setStudyError('Keine Lern-Doku vorhanden.')
+  const chapterRecommendation = (chapter: string) => {
+    const value = chapter.toLowerCase()
+    if (value.includes('method')) return 'Arbeite mit einer Schrittfolge aus Ziel, Design, Stichprobe und Auswertung.'
+    if (value.includes('diskussion')) return 'Formuliere zuerst Ergebnis -> Bedeutung -> Limitation in drei kurzen Sätzen.'
+    if (value.includes('einleitung')) return 'Prüfe Problemstellung, Relevanz und Forschungsfrage in genau dieser Reihenfolge.'
+    if (value.includes('statistik') || value.includes('analyse')) return 'Wiederhole die Kernformeln und rechne zwei kurze Beispielaufgaben.'
+    if (value.includes('zit') || value.includes('quelle')) return 'Baue einen festen Quellen-Check vor dem finalen Schreiben ein.'
+    return 'Gehe Kapitelabschnitt für Abschnitt durch und beantworte je Abschnitt drei Kontrollfragen.'
+  }
+
+  const createWeaknessQuiz = async () => {
+    setStudyWeaknessNotice(null)
+    if (answeredQuizQuestionsCount < 50) {
+      setStudyWeaknessNotice({
+        type: 'error',
+        text: `Schwächen-Analyse wird ab 50 beantworteten Fragen freigeschaltet. Aktuell: ${answeredQuizQuestionsCount}.`,
+      })
       return
     }
-    const timestamp = new Date().toISOString()
-    const id =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `note-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-    const lines: string[] = []
-    if (tutor.intro) lines.push(tutor.intro.trim(), '')
-    if (tutor.keyTakeaways && tutor.keyTakeaways.length > 0) {
-      lines.push('Key Takeaways:')
-      tutor.keyTakeaways.slice(0, 10).forEach((t) => lines.push(`- ${t}`))
-      lines.push('')
-    }
-    tutor.sections.slice(0, 6).forEach((sec) => {
-      lines.push(`${sec.heading}`)
-      sec.bullets.slice(0, 8).forEach((b) => lines.push(`- ${b}`))
-      lines.push('')
-    })
-
-    const content = lines.join('\n').trim()
-
-    const nextNote: ThesisNote = {
-      id,
-      title: `Lern-Doku: ${material.name}`,
-      content,
-      subject: 'Vorlesung',
-      tags: ['lernstoff', 'pdf', 'elea'],
-      priority: 'medium',
-      inputType: 'text',
-      createdAt: timestamp,
-      updatedAt: timestamp,
+    if (weakChapterPerformance.length === 0) {
+      setStudyWeaknessNotice({
+        type: 'ok',
+        text: 'Aktuell keine Kapitel unter 60%. Starkes Niveau - trainiere weiter im normalen Quizmodus.',
+      })
+      return
     }
 
-    setNotes((prev) => [nextNote, ...prev])
+    const apiKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined
+    const preferredModel = (import.meta.env.VITE_GROQ_CHAT_MODEL as string | undefined) || 'llama-3.3-70b-versatile'
+    const models = [preferredModel, 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'gemma2-9b-it']
+    if (!apiKey) {
+      setStudyWeaknessNotice({ type: 'error', text: 'VITE_GROQ_API_KEY fehlt in .env.local.' })
+      return
+    }
+
+    const weakChapters = weakChapterPerformance.slice(0, 6).map((item) => item.chapter)
+    const sourceQuestions = studyMaterials
+      .flatMap((material) => {
+        const levels: Array<'easy' | 'medium' | 'hard'> = ['easy', 'medium', 'hard']
+        return levels.flatMap((level) =>
+          (material.quiz?.[level] ?? [])
+            .filter((q) => weakChapters.includes(toChapterTag(q.chapterTag, 'Allgemein')))
+            .map((q) => ({
+              chapterTag: toChapterTag(q.chapterTag, 'Allgemein'),
+              question: q.question,
+              options: q.options,
+              correct: q.correct,
+              level,
+            }))
+        )
+      })
+      .slice(0, 48)
+
+    const failedExamples = studyQuizAttempts
+      .flatMap((attempt) => (attempt.questionResults ?? []).map((row) => ({ row, level: attempt.level })))
+      .filter(({ row }) => row.picked >= 0 && !row.isCorrect && weakChapters.includes(toChapterTag(row.chapterTag, 'Allgemein')))
+      .slice(0, 48)
+      .map(({ row, level }) => ({
+        chapterTag: toChapterTag(row.chapterTag, 'Allgemein'),
+        question: row.question,
+        picked: row.picked,
+        correct: row.correct,
+        level,
+      }))
+
+    setStudyWeaknessBusy(true)
+    try {
+      const weaknessBrief = weakChapterPerformance.slice(0, 6).map((item) => ({
+        chapter: item.chapter,
+        total: item.total,
+        correct: item.correct,
+        wrong: item.wrong,
+        percent: item.percent,
+      }))
+
+      const { parsed } = await groqChatJsonWithFallback<StudyQuiz>({
+        apiKey,
+        models,
+        system:
+          'Du bist Lerncoach fuer Studierende. Erzeuge nur gueltiges JSON ohne Markdown. Fokus: gezielte Schwachstellen.',
+        user: `Erzeuge ein neues Lernlabor-Quiz mit drei Levels (easy, medium, hard), je 5 MCQs mit 4 Optionen und genau 1 korrekter Antwort.
+
+Jede Frage MUSS ein "chapterTag" haben und aus den Schwachstellen stammen.
+JSON-Format:
+{
+  "easy":[{"question":"string","options":["a","b","c","d"],"correct":0,"explanation":"string","chapterTag":"string"}],
+  "medium":[...],
+  "hard":[...]
+}
+
+Schwaechenanalyse:
+${JSON.stringify(weaknessBrief)}
+
+Falsch beantwortete Beispiele:
+${JSON.stringify(failedExamples)}
+
+Bestehender Fragenpool:
+${JSON.stringify(sourceQuestions)}
+
+Regeln:
+- keine Wiederholung identischer Fragen
+- klare, kurze Sprache
+- Distraktoren muessen plausibel sein
+- pro Level mindestens 3 verschiedene chapterTag verwenden`,
+        temperature: 0.22,
+        maxTokens: 2600,
+      })
+
+      const quizSets = buildTaggedQuiz(parsed ?? undefined, weakChapters)
+      if (!quizSets) {
+        throw new Error('Schwaechen-Quiz konnte nicht erzeugt werden.')
+      }
+
+      const timestamp = new Date().toISOString()
+      const materialId =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `study-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+      const weaknessMaterial: StudyMaterial = {
+        id: materialId,
+        name: `Schwaechen-Quiz ${new Date().toLocaleDateString('de-DE')}`,
+        size: 0,
+        pageCount: 0,
+        uploadedAt: timestamp,
+        status: 'ready',
+        tutor: {
+          title: 'Schwaechen-Analyse Training',
+          intro:
+            'Dieses Quiz fokussiert gezielt Kapitel unter 60% Trefferquote. Trainiere zuerst diese Punkte und wiederhole dann ein Level.',
+          keyTakeaways: weakChapterPerformance.slice(0, 5).map((item) => `${item.chapter}: ${item.percent}%`),
+          sections: weakChapterPerformance.slice(0, 5).map((item) => ({
+            heading: item.chapter,
+            bullets: [
+              `Trefferquote: ${item.percent}% (${item.correct}/${item.total})`,
+              `Fokus: ${item.wrong} Fehler gezielt aufarbeiten`,
+            ],
+            definitions: [],
+            examples: [chapterRecommendation(item.chapter)],
+            questions: [],
+          })),
+        },
+        quiz: quizSets,
+        quizHistory: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }
+
+      setStudyMaterials((prev) => [weaknessMaterial, ...prev.filter((item) => item.id !== materialId)])
+      setStudyActiveId(materialId)
+      setStudyActiveTab('test')
+      resetStudyQuizState()
+      setStudyWeaknessNotice({
+        type: 'ok',
+        text: 'Neues Schwaechen-Quiz erstellt und im Lernlabor gespeichert.',
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Schwaechen-Quiz konnte nicht erstellt werden.'
+      setStudyWeaknessNotice({ type: 'error', text: message })
+    } finally {
+      setStudyWeaknessBusy(false)
+    }
   }
 
   const startVoiceCapture = async () => {
@@ -1156,6 +1398,27 @@ const MyThesisPage = () => {
     setChecklist((prev) => prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item)))
   }
 
+  const openOverviewSearchResult = (result: OverviewSearchResult) => {
+    if (result.type === 'document') {
+      setDocFilter('all')
+      setDocQuery(result.title)
+      setActiveView('documents')
+      return
+    }
+
+    if (result.type === 'task') {
+      const task = todos.find((item) => item.id === result.id)
+      if (task) setSelectedTodo(task)
+      setTodoView('all')
+      setActiveView('tasks')
+      return
+    }
+
+    const note = notes.find((item) => item.id === result.id)
+    if (note) setSelectedNote(note)
+    setActiveView('workbench')
+  }
+
   const circumference = 2 * Math.PI * 46
   const dashOffset = circumference - (progressValue / 100) * circumference
 
@@ -1173,17 +1436,44 @@ const MyThesisPage = () => {
     }))
   }, [sparklineValues])
 
-  const docMixGradient = useMemo(() => {
-    if (documents.length === 0) return 'conic-gradient(#dbe8e7 0deg 360deg)'
-    const colors = ['#28a394', '#46baa9', '#72d1c3', '#a9e7de']
-    let angle = 0
-    const stops = docTypeStats.map((item, index) => {
-      const start = angle
-      angle += (item.percent / 100) * 360
-      return `${colors[index % colors.length]} ${start}deg ${angle}deg`
-    })
-    return `conic-gradient(${stops.join(', ')})`
-  }, [docTypeStats, documents.length])
+  const overviewSearchResults = useMemo<OverviewSearchResult[]>(() => {
+    const query = overviewSearchQuery.trim().toLowerCase()
+    if (!query) return []
+
+    const documentHits = documents
+      .filter((doc) => doc.name.toLowerCase().includes(query))
+      .slice(0, 4)
+      .map((doc) => ({
+        id: doc.id,
+        type: 'document' as const,
+        title: doc.name,
+        meta: `${formatBytes(doc.size)} · ${formatDocDate(doc.uploadedAt)}`,
+      }))
+
+    const taskHits = todos
+      .filter((todo) => `${todo.title} ${todo.detail}`.toLowerCase().includes(query))
+      .slice(0, 4)
+      .map((todo) => ({
+        id: todo.id,
+        type: 'task' as const,
+        title: todo.title,
+        meta: `${todo.done ? 'Erledigt' : 'Offen'} · Deadline ${todo.date}`,
+      }))
+
+    const noteHits = notes
+      .filter((note) =>
+        `${note.title} ${note.content} ${note.subject} ${note.tags.join(' ')}`.toLowerCase().includes(query)
+      )
+      .slice(0, 4)
+      .map((note) => ({
+        id: note.id,
+        type: 'note' as const,
+        title: note.title,
+        meta: `${note.subject || 'Allgemein'} · ${note.priority === 'high' ? 'Hoch' : note.priority === 'medium' ? 'Mittel' : 'Niedrig'}`,
+      }))
+
+    return [...documentHits, ...taskHits, ...noteHits].slice(0, 8)
+  }, [overviewSearchQuery, documents, todos, notes])
 
   const qualityHighlights = [
     'Struktur, Inhalt, Methodik, Ergebnisse, Sprache, Zitationen, Originalität, Visuals, Ethik & mehr.',
@@ -1306,33 +1596,49 @@ const MyThesisPage = () => {
                   </svg>
                 </div>
 
-                <div className="thesis-pro-mix-card">
-                  <h4>Dokument-Mix</h4>
-                  <div className="thesis-pro-donut-wrap">
-                    <div className="thesis-pro-donut" style={{ backgroundImage: docMixGradient }}>
-                      <span>{documents.length}</span>
-                    </div>
-                    <div className="thesis-pro-donut-legend">
-                      {docTypeStats.map((item) => (
-                        <div key={item.label} className="thesis-pro-legend-row">
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                        </div>
+                <div className="thesis-pro-mix-card thesis-pro-search-card">
+                  <h4>Schnellsuche</h4>
+                  <div className="thesis-pro-search-shell" role="search" aria-label="Schnellsuche in My Thesis">
+                    <div className="thesis-pro-search-grid-bg" />
+                    <div className="thesis-pro-search-white" />
+                    <div className="thesis-pro-search-border" />
+                    <div className="thesis-pro-search-dark-border" />
+                    <div className="thesis-pro-search-glow" />
+                    <label className="thesis-pro-search-main" htmlFor="thesis-overview-search">
+                      <Search size={14} />
+                      <input
+                        id="thesis-overview-search"
+                        type="text"
+                        placeholder="Suchen..."
+                        value={overviewSearchQuery}
+                        onChange={(event) => setOverviewSearchQuery(event.target.value)}
+                      />
+                      <span className="thesis-pro-search-input-mask" />
+                      <span className="thesis-pro-search-accent-mask" />
+                    </label>
+                  </div>
+                  {overviewSearchQuery.trim().length === 0 ? (
+                    <div className="thesis-pro-search-empty">Suche in Dokumenten, Aufgaben und Notizen.</div>
+                  ) : overviewSearchResults.length === 0 ? (
+                    <div className="thesis-pro-search-empty">Keine Treffer gefunden.</div>
+                  ) : (
+                    <div className="thesis-pro-search-results">
+                      {overviewSearchResults.map((result) => (
+                        <button
+                          key={`${result.type}-${result.id}`}
+                          className="thesis-pro-search-result"
+                          type="button"
+                          onClick={() => openOverviewSearchResult(result)}
+                        >
+                          <span className="thesis-pro-search-result-type">
+                            {result.type === 'document' ? 'Dokument' : result.type === 'task' ? 'Aufgabe' : 'Notiz'}
+                          </span>
+                          <strong>{result.title}</strong>
+                          <small>{result.meta}</small>
+                        </button>
                       ))}
                     </div>
-                  </div>
-                  <div className="thesis-pro-mix-summary">
-                    <div className="thesis-pro-mix-kpi">
-                      <span>Checklist</span>
-                      <strong>
-                        {checklistDone}/{checklist.length}
-                      </strong>
-                    </div>
-                    <div className="thesis-pro-mix-kpi">
-                      <span>Abgabereife</span>
-                      <strong>{checklistRate}%</strong>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </article>
@@ -2085,10 +2391,10 @@ const MyThesisPage = () => {
                     </button>
                     <button
                       type="button"
-                      className={`ghost ${studyActiveTab === 'save' ? 'active' : ''}`}
-                      onClick={() => setStudyActiveTab('save')}
+                      className={`ghost ${studyActiveTab === 'weakness' ? 'active' : ''}`}
+                      onClick={() => setStudyActiveTab('weakness')}
                     >
-                      Merken
+                      Schwächen-Analyse
                     </button>
                   </div>
 
@@ -2275,17 +2581,59 @@ const MyThesisPage = () => {
                     </div>
                   )}
 
-                  {studyActiveTab === 'save' && (
-                    <div className="thesis-study-save">
+                  {studyActiveTab === 'weakness' && (
+                    <div className="thesis-study-weakness">
                       <p className="thesis-subline">
-                        Speichere die Zusammenfassung als Notiz, damit du spaeter in deinem Notizen-Feed darauf zugreifen kannst.
+                        Jede Quizfrage wird einem Kapitel zugeordnet. Unter 60% Trefferquote markiert Elea das Kapitel als Schwäche und empfiehlt gezieltes Training.
                       </p>
+                      <div className="thesis-study-weakness-meta">
+                        <span>
+                          Beantwortete Fragen: <strong>{answeredQuizQuestionsCount}</strong>/50
+                        </span>
+                        <span>
+                          Schwache Kapitel: <strong>{weakChapterPerformance.length}</strong>
+                        </span>
+                      </div>
+
+                      {studyWeaknessNotice && (
+                        <div className={`todo-empty ${studyWeaknessNotice.type === 'error' ? 'thesis-task-error' : 'thesis-task-empty'}`}>
+                          {studyWeaknessNotice.text}
+                        </div>
+                      )}
+
+                      {chapterPerformance.length === 0 ? (
+                        <div className="todo-empty thesis-task-empty">Noch keine Kapitelanalyse vorhanden. Starte zuerst Quizrunden im Lernlabor.</div>
+                      ) : (
+                        <div className="thesis-weakness-list">
+                          {chapterPerformance.slice(0, 8).map((item) => {
+                            const levelClass = item.percent < 60 ? 'risk-high' : item.percent < 75 ? 'risk-mid' : 'risk-good'
+                            return (
+                              <article key={item.chapter} className={`thesis-weakness-item ${levelClass}`}>
+                                <header>
+                                  <strong>{item.chapter}</strong>
+                                  <span>{item.percent}%</span>
+                                </header>
+                                <p>
+                                  {item.correct}/{item.total} korrekt · {item.wrong} Fehler
+                                </p>
+                                {item.percent < 60 && <small>Empfehlung: {chapterRecommendation(item.chapter)}</small>}
+                              </article>
+                            )
+                          })}
+                        </div>
+                      )}
+
                       <div className="thesis-actions-row">
-                        <button className="primary" type="button" onClick={() => saveStudyAsNote(activeStudyMaterial)}>
-                          In Notizen speichern
+                        <button
+                          className="primary"
+                          type="button"
+                          onClick={createWeaknessQuiz}
+                          disabled={studyWeaknessBusy || answeredQuizQuestionsCount < 50}
+                        >
+                          {studyWeaknessBusy ? 'Schwächen-Quiz wird erstellt...' : 'Schwächen-Quiz erstellen'}
                         </button>
-                        <button className="ghost" type="button" onClick={() => setStudyActiveTab('learn')}>
-                          Zurueck zur Lernansicht
+                        <button className="ghost" type="button" onClick={() => setStudyActiveTab('test')}>
+                          Zu den Quiz
                         </button>
                       </div>
                     </div>
