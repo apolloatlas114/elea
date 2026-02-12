@@ -60,6 +60,10 @@ const plannerRepeatOptions: PlannerRepeat[] = ['never', 'daily', 'weekly']
 const plannerGoogleScope = 'https://www.googleapis.com/auth/calendar.readonly'
 const plannerOutlookScope = 'https://graph.microsoft.com/Calendars.Read'
 const plannerOauthClockSkewMs = 60 * 1000
+const plannerGoogleClientIdFallback = '756061098880-nia28g8sqf69jsgsdmd3r05foo28cbcu.apps.googleusercontent.com'
+const plannerGoogleClientId =
+  ((import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined) || plannerGoogleClientIdFallback).trim()
+const plannerMicrosoftClientId = ((import.meta.env.VITE_MICROSOFT_OAUTH_CLIENT_ID as string | undefined) || '').trim()
 const plannerRepeatLabels: Record<PlannerRepeat, string> = {
   never: 'Keine Wiederholung',
   daily: 'Taeglich',
@@ -1581,10 +1585,7 @@ const DashboardPage = () => {
 
   const exchangePlannerCode = useCallback(
     async (provider: PlannerOAuthProvider, code: string, codeVerifier: string, redirectUri: string) => {
-      const clientId =
-        provider === 'google'
-          ? (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined)
-          : (import.meta.env.VITE_MICROSOFT_OAUTH_CLIENT_ID as string | undefined)
+      const clientId = provider === 'google' ? plannerGoogleClientId : plannerMicrosoftClientId
       if (!clientId) {
         throw new Error(
           provider === 'google' ? 'VITE_GOOGLE_OAUTH_CLIENT_ID fehlt.' : 'VITE_MICROSOFT_OAUTH_CLIENT_ID fehlt.'
@@ -1624,10 +1625,7 @@ const DashboardPage = () => {
   )
 
   const refreshPlannerSession = useCallback(async (provider: PlannerOAuthProvider, session: PlannerOAuthSession) => {
-    const clientId =
-      provider === 'google'
-        ? (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined)
-        : (import.meta.env.VITE_MICROSOFT_OAUTH_CLIENT_ID as string | undefined)
+    const clientId = provider === 'google' ? plannerGoogleClientId : plannerMicrosoftClientId
     if (!clientId) return null
     const tokenUrl =
       provider === 'google'
@@ -1677,10 +1675,7 @@ const DashboardPage = () => {
 
   const startPlannerOAuth = useCallback(
     async (provider: PlannerOAuthProvider) => {
-      const clientId =
-        provider === 'google'
-          ? (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined)
-          : (import.meta.env.VITE_MICROSOFT_OAUTH_CLIENT_ID as string | undefined)
+      const clientId = provider === 'google' ? plannerGoogleClientId : plannerMicrosoftClientId
       if (!clientId) {
         setPlannerNotice({
           type: 'warn',
