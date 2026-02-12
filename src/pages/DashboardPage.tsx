@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCountdown } from '../hooks/useCountdown'
 import { useStress } from '../hooks/useStress'
@@ -17,7 +17,7 @@ import type {
   ThesisDocument,
   TodoItem,
 } from '../lib/storage'
-import { STORAGE_KEYS, TIME_SLOTS, formatCountdown, normalizeStudyMaterials, normalizeTodos, parseJson, todayIso } from '../lib/storage'
+import { STORAGE_KEYS, formatCountdown, normalizeStudyMaterials, normalizeTodos, parseJson, toLocalIsoDate, todayIso } from '../lib/storage'
 import {
   appendDeadlineLog,
   hasPaidCoachingPlan,
@@ -46,6 +46,34 @@ const initialProfile: Profile = {
 
 const stressWarningThreshold = 50
 const weekdayLabels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+const plannerStorageKeys = {
+  eleaEvents: 'elea_planner_events',
+  externalEvents: 'elea_planner_external_events',
+  sync: 'elea_planner_sync',
+} as const
+const plannerColorOptions = ['#18b6a4', '#0f998f', '#4f8df5', '#f7b55f', '#a370f5'] as const
+const plannerDefaultColor = plannerColorOptions[0]
+const plannerReminderOptions: PlannerReminder[] = ['none', '10m', '30m', '60m']
+const plannerRepeatOptions: PlannerRepeat[] = ['never', 'daily', 'weekly']
+const plannerRepeatLabels: Record<PlannerRepeat, string> = {
+  never: 'Keine Wiederholung',
+  daily: 'Taeglich',
+  weekly: 'Woechentlich',
+}
+const plannerReminderLabels: Record<PlannerReminder, string> = {
+  none: 'Keine Erinnerung',
+  '10m': '10 Min vorher',
+  '30m': '30 Min vorher',
+  '60m': '60 Min vorher',
+}
+const plannerDefaultSyncSettings: PlannerSyncSettings = {
+  googleConnected: false,
+  uniConnected: false,
+  uniIcalUrl: '',
+  autoSyncMinutes: 15,
+  bufferMinutes: 10,
+  lastSyncedAt: '',
+}
 
 type AssessmentOption = {
   id: string
@@ -71,6 +99,58 @@ type EleaQuizQuestion = {
   correct: number
   explanation?: string
   chapterTag?: string
+}
+
+type PlannerEventSource = 'elea' | 'external-google' | 'external-uni'
+type PlannerEventKind = 'session' | 'task' | 'external'
+type PlannerRepeat = 'never' | 'daily' | 'weekly'
+type PlannerReminder = 'none' | '10m' | '30m' | '60m'
+type PlannerNotice = { type: 'ok' | 'warn'; text: string } | null
+
+type PlannerEvent = {
+  id: string
+  source: PlannerEventSource
+  kind: PlannerEventKind
+  title: string
+  detail: string
+  date: string
+  start: string
+  end: string
+  allDay: boolean
+  repeat: PlannerRepeat
+  tags: string[]
+  participants: string[]
+  location: string
+  color: string
+  remind: PlannerReminder
+  readOnly: boolean
+  updatedAt: string
+}
+
+type PlannerSyncSettings = {
+  googleConnected: boolean
+  uniConnected: boolean
+  uniIcalUrl: string
+  autoSyncMinutes: 15 | 30
+  bufferMinutes: 0 | 10 | 15
+  lastSyncedAt: string
+}
+
+type PlannerDraft = {
+  id: string | null
+  date: string
+  kind: 'session' | 'task'
+  title: string
+  allDay: boolean
+  start: string
+  end: string
+  repeat: PlannerRepeat
+  tags: string
+  participants: string
+  location: string
+  color: string
+  remind: PlannerReminder
+  notes: string
 }
 
 const assessmentQuestions: AssessmentQuestion[] = [
@@ -261,6 +341,283 @@ const buildSlots = (start: string, end: string, stepMinutes: number) => {
   return slots
 }
 
+const createPlannerId = (prefix: string) =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+const normalizeTimeValue = (value: string, fallback: string) => {
+  const trimmed = value.trim()
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : fallback
+}
+
+const splitList = (value: string) =>
+  value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 10)
+
+const mergeRanges = (ranges: Array<{ start: number; end: number }>) => {
+  if (ranges.length === 0) return []
+  const sorted = [...ranges].sort((a, b) => a.start - b.start)
+  const merged: Array<{ start: number; end: number }> = [{ ...sorted[0] }]
+  sorted.slice(1).forEach((range) => {
+    const last = merged[merged.length - 1]
+    if (range.start <= last.end) {
+      last.end = Math.max(last.end, range.end)
+      return
+    }
+    merged.push({ ...range })
+  })
+  return merged
+}
+
+const startOfWeekIso = (isoDate: string) => {
+  const base = new Date(`${isoDate}T00:00:00`)
+  const day = base.getDay()
+  const mondayOffset = (day + 6) % 7
+  base.setDate(base.getDate() - mondayOffset)
+  base.setHours(0, 0, 0, 0)
+  return base
+}
+
+const sortPlannerEvents = (rows: PlannerEvent[]) =>
+  [...rows].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date)
+    if (a.allDay !== b.allDay) return a.allDay ? -1 : 1
+    const startDiff = timeToMinutes(a.start) - timeToMinutes(b.start)
+    if (startDiff !== 0) return startDiff
+    return a.title.localeCompare(b.title)
+  })
+
+const createPlannerDraft = (date: string, kind: 'session' | 'task', source?: PlannerEvent): PlannerDraft => {
+  if (source) {
+    return {
+      id: source.id,
+      date: source.date,
+      kind: source.kind === 'task' ? 'task' : 'session',
+      title: source.title,
+      allDay: source.allDay,
+      start: source.start,
+      end: source.end,
+      repeat: source.repeat,
+      tags: source.tags.join(', '),
+      participants: source.participants.join(', '),
+      location: source.location,
+      color: source.color || plannerDefaultColor,
+      remind: source.remind,
+      notes: source.detail,
+    }
+  }
+  return {
+    id: null,
+    date,
+    kind,
+    title: '',
+    allDay: false,
+    start: kind === 'task' ? '16:00' : '10:00',
+    end: kind === 'task' ? '16:45' : '11:00',
+    repeat: 'never',
+    tags: kind === 'task' ? 'Aufgabe' : 'Fokus',
+    participants: '',
+    location: '',
+    color: plannerDefaultColor,
+    remind: '30m',
+    notes: '',
+  }
+}
+
+const isPlannerSource = (value: unknown): value is PlannerEventSource =>
+  value === 'elea' || value === 'external-google' || value === 'external-uni'
+
+const isPlannerKind = (value: unknown): value is PlannerEventKind =>
+  value === 'session' || value === 'task' || value === 'external'
+
+const isPlannerRepeat = (value: unknown): value is PlannerRepeat =>
+  value === 'never' || value === 'daily' || value === 'weekly'
+
+const isPlannerReminder = (value: unknown): value is PlannerReminder =>
+  value === 'none' || value === '10m' || value === '30m' || value === '60m'
+
+const normalizePlannerEvents = (value: unknown): PlannerEvent[] => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item, index) => {
+      const raw = item as Record<string, unknown>
+      const source: PlannerEventSource = isPlannerSource(raw.source) ? raw.source : 'elea'
+      const kind: PlannerEventKind = isPlannerKind(raw.kind) ? raw.kind : source === 'elea' ? 'session' : 'external'
+      const title = typeof raw.title === 'string' ? raw.title.trim() : ''
+      const date = typeof raw.date === 'string' ? raw.date : ''
+      if (!title || !date) return null
+      const color =
+        typeof raw.color === 'string' && raw.color.trim().length > 0
+          ? raw.color.trim()
+          : source === 'elea'
+            ? plannerDefaultColor
+            : '#c5ccd3'
+      return {
+        id: typeof raw.id === 'string' && raw.id.trim().length > 0 ? raw.id : `planner-${Date.now()}-${index}`,
+        source,
+        kind,
+        title,
+        detail: typeof raw.detail === 'string' ? raw.detail : '',
+        date,
+        start: normalizeTimeValue(typeof raw.start === 'string' ? raw.start : '', '09:00'),
+        end: normalizeTimeValue(typeof raw.end === 'string' ? raw.end : '', '10:00'),
+        allDay: Boolean(raw.allDay),
+        repeat: isPlannerRepeat(raw.repeat) ? raw.repeat : 'never',
+        tags: Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+        participants: Array.isArray(raw.participants)
+          ? raw.participants.filter((person): person is string => typeof person === 'string')
+          : [],
+        location: typeof raw.location === 'string' ? raw.location : '',
+        color,
+        remind: isPlannerReminder(raw.remind) ? raw.remind : '30m',
+        readOnly: Boolean(raw.readOnly),
+        updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : new Date().toISOString(),
+      } satisfies PlannerEvent
+    })
+    .filter((event): event is PlannerEvent => Boolean(event))
+}
+
+const buildGoogleSeedEvents = (referenceDate: string): PlannerEvent[] => {
+  const monday = startOfWeekIso(referenceDate)
+  const templates = [
+    { dayOffset: 0, start: '09:15', end: '10:45', title: 'Vorlesung Methoden', detail: 'Externer Termin aus Google Kalender' },
+    { dayOffset: 1, start: '13:00', end: '14:00', title: 'Tutorium', detail: 'Externer Termin aus Google Kalender' },
+    { dayOffset: 2, start: '11:00', end: '12:30', title: 'Uni-Projektmeeting', detail: 'Externer Termin aus Google Kalender' },
+    { dayOffset: 4, start: '15:00', end: '16:30', title: 'Seminarblock', detail: 'Externer Termin aus Google Kalender' },
+  ]
+  return templates.map((entry) => {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + entry.dayOffset)
+    const iso = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+    return {
+      id: `google-seed-${iso}-${entry.start}`,
+      source: 'external-google',
+      kind: 'external',
+      title: entry.title,
+      detail: entry.detail,
+      date: iso,
+      start: entry.start,
+      end: entry.end,
+      allDay: false,
+      repeat: 'never',
+      tags: ['Google'],
+      participants: [],
+      location: '',
+      color: '#c7ced6',
+      remind: 'none',
+      readOnly: true,
+      updatedAt: new Date().toISOString(),
+    } satisfies PlannerEvent
+  })
+}
+
+const decodeIcalText = (value: string) =>
+  value
+    .replace(/\\n/g, '\n')
+    .replace(/\\,/g, ',')
+    .replace(/\\;/g, ';')
+    .replace(/\\\\/g, '\\')
+
+const parseIcalDateTime = (value: string) => {
+  const trimmed = value.trim()
+  if (/^\d{8}$/.test(trimmed)) {
+    return {
+      date: `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`,
+      time: '00:00',
+      allDay: true,
+    }
+  }
+  const match = trimmed.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/)
+  if (!match) return null
+  const [, y, m, d, hh, mm, , utcFlag] = match
+  if (utcFlag) {
+    const utcDate = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), 0))
+    return {
+      date: `${utcDate.getFullYear()}-${pad2(utcDate.getMonth() + 1)}-${pad2(utcDate.getDate())}`,
+      time: `${pad2(utcDate.getHours())}:${pad2(utcDate.getMinutes())}`,
+      allDay: false,
+    }
+  }
+  return {
+    date: `${y}-${m}-${d}`,
+    time: `${hh}:${mm}`,
+    allDay: false,
+  }
+}
+
+const parseIcalEvents = (content: string): PlannerEvent[] => {
+  const unfolded = content.replace(/\r?\n[ \t]/g, '')
+  const lines = unfolded.split(/\r?\n/)
+  const events: PlannerEvent[] = []
+  let current: Record<string, string> | null = null
+
+  lines.forEach((line) => {
+    if (line === 'BEGIN:VEVENT') {
+      current = {}
+      return
+    }
+    if (line === 'END:VEVENT') {
+      if (!current) return
+      const dtStartRaw = current.DTSTART || ''
+      const dtEndRaw = current.DTEND || ''
+      const parsedStart = parseIcalDateTime(dtStartRaw)
+      const parsedEnd = parseIcalDateTime(dtEndRaw)
+      if (!parsedStart) {
+        current = null
+        return
+      }
+      const allDay = parsedStart.allDay || parsedEnd?.allDay || false
+      const startTime = allDay ? '00:00' : parsedStart.time
+      const endTime = allDay ? '23:59' : parsedEnd?.time || minutesToTime(Math.min(timeToMinutes(startTime) + 60, 23 * 60 + 59))
+      const title = decodeIcalText(current.SUMMARY || 'Uni-Termin')
+      const detail = decodeIcalText(current.DESCRIPTION || '')
+      const location = decodeIcalText(current.LOCATION || '')
+      const uid = current.UID ? decodeIcalText(current.UID) : createPlannerId('uni')
+      events.push({
+        id: `uni-${uid}`,
+        source: 'external-uni',
+        kind: 'external',
+        title,
+        detail,
+        date: parsedStart.date,
+        start: startTime,
+        end: endTime,
+        allDay,
+        repeat: 'never',
+        tags: ['Uni'],
+        participants: [],
+        location,
+        color: '#c7ced6',
+        remind: 'none',
+        readOnly: true,
+        updatedAt: new Date().toISOString(),
+      })
+      current = null
+      return
+    }
+    if (!current) return
+    const separatorIndex = line.indexOf(':')
+    if (separatorIndex <= 0) return
+    const rawKey = line.slice(0, separatorIndex)
+    const key = rawKey.split(';')[0].toUpperCase()
+    const value = line.slice(separatorIndex + 1)
+    if (!current[key]) {
+      current[key] = value
+    }
+  })
+
+  return sortPlannerEvents(events)
+}
+
+const toMonthStart = (value: string | Date) => {
+  const base = typeof value === 'string' ? new Date(`${value}T00:00:00`) : new Date(value)
+  return new Date(base.getFullYear(), base.getMonth(), 1)
+}
+
 const DashboardPage = () => {
   const [profile, setProfile] = useState<Profile | null>(() =>
     parseJson(localStorage.getItem(STORAGE_KEYS.profile), null)
@@ -292,6 +649,31 @@ const DashboardPage = () => {
   const [coachingGateNoticeOpen, setCoachingGateNoticeOpen] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0)
   const [activeDate, setActiveDate] = useState(() => todayIso())
+  const [dayPlannerDate, setDayPlannerDate] = useState<string | null>(null)
+  const [monthPlannerOpen, setMonthPlannerOpen] = useState(false)
+  const [monthPlannerCursor, setMonthPlannerCursor] = useState<Date>(() => toMonthStart(todayIso()))
+  const [plannerNotice, setPlannerNotice] = useState<PlannerNotice>(null)
+  const [plannerSyncSettings, setPlannerSyncSettings] = useState<PlannerSyncSettings>(() => {
+    const parsed = parseJson(localStorage.getItem(plannerStorageKeys.sync), plannerDefaultSyncSettings)
+    return {
+      googleConnected: Boolean(parsed?.googleConnected),
+      uniConnected: Boolean(parsed?.uniConnected),
+      uniIcalUrl: typeof parsed?.uniIcalUrl === 'string' ? parsed.uniIcalUrl : '',
+      autoSyncMinutes: plannerDefaultSyncSettings.autoSyncMinutes,
+      bufferMinutes: plannerDefaultSyncSettings.bufferMinutes,
+      lastSyncedAt: typeof parsed?.lastSyncedAt === 'string' ? parsed.lastSyncedAt : '',
+    }
+  })
+  const [plannerExternalEvents, setPlannerExternalEvents] = useState<PlannerEvent[]>(() =>
+    normalizePlannerEvents(parseJson(localStorage.getItem(plannerStorageKeys.externalEvents), []))
+  )
+  const [plannerEleaEvents, setPlannerEleaEvents] = useState<PlannerEvent[]>(() =>
+    normalizePlannerEvents(parseJson(localStorage.getItem(plannerStorageKeys.eleaEvents), []))
+  )
+  const [plannerSyncExpanded, setPlannerSyncExpanded] = useState(false)
+  const [plannerEditorOpen, setPlannerEditorOpen] = useState(false)
+  const [plannerEditorMode, setPlannerEditorMode] = useState<'create' | 'edit'>('create')
+  const [plannerDraft, setPlannerDraft] = useState<PlannerDraft>(() => createPlannerDraft(todayIso(), 'session'))
   const [supportDraft, setSupportDraft] = useState('')
   const [supportNotice, setSupportNotice] = useState<{ type: 'ok' | 'warn'; text: string } | null>(null)
   const [askEleaOpen, setAskEleaOpen] = useState(false)
@@ -308,6 +690,7 @@ const DashboardPage = () => {
   )
   const askCaptureRef = useRef<MicrophoneCaptureSession | null>(null)
   const askRecordingTimeoutRef = useRef<number | null>(null)
+  const uniIcalInputRef = useRef<HTMLInputElement | null>(null)
   const navigate = useNavigate()
   const { user } = useAuth()
   const stress = useStress(user?.id)
@@ -418,6 +801,18 @@ const DashboardPage = () => {
   }, [commitmentSeen])
 
   useEffect(() => {
+    localStorage.setItem(plannerStorageKeys.sync, JSON.stringify(plannerSyncSettings))
+  }, [plannerSyncSettings])
+
+  useEffect(() => {
+    localStorage.setItem(plannerStorageKeys.externalEvents, JSON.stringify(plannerExternalEvents))
+  }, [plannerExternalEvents])
+
+  useEffect(() => {
+    localStorage.setItem(plannerStorageKeys.eleaEvents, JSON.stringify(plannerEleaEvents))
+  }, [plannerEleaEvents])
+
+  useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.phdBookings, JSON.stringify(bookingLog))
   }, [bookingLog])
 
@@ -442,6 +837,12 @@ const DashboardPage = () => {
     const timer = window.setTimeout(() => setCoachingGateNoticeOpen(false), 4200)
     return () => window.clearTimeout(timer)
   }, [coachingGateNoticeOpen])
+
+  useEffect(() => {
+    if (!plannerNotice) return
+    const timer = window.setTimeout(() => setPlannerNotice(null), 4200)
+    return () => window.clearTimeout(timer)
+  }, [plannerNotice])
 
   useEffect(() => {
     if (!profile?.abgabedatum) return
@@ -587,7 +988,7 @@ const DashboardPage = () => {
     return weekdayLabels.map((label, index) => {
       const date = new Date(monday)
       date.setDate(monday.getDate() + index)
-      return { label, iso: date.toISOString().slice(0, 10), day: date.getDate() }
+      return { label, iso: toLocalIsoDate(date), day: date.getDate() }
     })
   }, [weekOffset])
 
@@ -597,44 +998,340 @@ const DashboardPage = () => {
     if (!inWeek) setActiveDate(weekDays[0].iso)
   }, [activeDate, weekDays])
 
-  const todosForDay = useMemo(
-    () =>
-      todos.filter(
-        (todo) =>
-          todo.date === activeDate && !todo.title.trim().toLowerCase().startsWith('frag elea:')
-      ),
-    [activeDate, todos]
+  const plannerEvents = useMemo(
+    () => sortPlannerEvents([...plannerExternalEvents, ...plannerEleaEvents]),
+    [plannerExternalEvents, plannerEleaEvents]
   )
 
-  const getTodoInitials = (title: string) => {
-    const cleaned = title.trim()
-    if (!cleaned) return 'TD'
-    const parts = cleaned.split(/\s+/)
-    const letters = parts.map((part) => part[0]).join('').slice(0, 2)
-    return letters.toUpperCase()
+  const plannerEventsByDate = useMemo(() => {
+    const grouped = new Map<string, PlannerEvent[]>()
+    plannerEvents.forEach((event) => {
+      if (!grouped.has(event.date)) grouped.set(event.date, [])
+      grouped.get(event.date)?.push(event)
+    })
+    return grouped
+  }, [plannerEvents])
+
+  const plannerPopupDate = dayPlannerDate ?? activeDate
+  const plannerPopupEvents = useMemo(
+    () => plannerEventsByDate.get(plannerPopupDate) ?? [],
+    [plannerEventsByDate, plannerPopupDate]
+  )
+  const plannerPopupTodos = useMemo(
+    () =>
+      todos
+        .filter((todo) => todo.date === plannerPopupDate)
+        .sort((a, b) => Number(a.done) - Number(b.done)),
+    [plannerPopupDate, todos]
+  )
+  const plannerPopupHasEntries = plannerPopupEvents.length > 0 || plannerPopupTodos.length > 0
+  const plannerTodoCountByDate = useMemo(() => {
+    const grouped = new Map<string, number>()
+    todos.forEach((todo) => {
+      if (!todo.date) return
+      grouped.set(todo.date, (grouped.get(todo.date) ?? 0) + 1)
+    })
+    return grouped
+  }, [todos])
+  const monthPlannerDays = useMemo(() => {
+    const first = toMonthStart(monthPlannerCursor)
+    const startOffset = (first.getDay() + 6) % 7
+    const gridStart = new Date(first)
+    gridStart.setDate(first.getDate() - startOffset)
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart)
+      date.setDate(gridStart.getDate() + index)
+      const iso = toLocalIsoDate(date)
+      const monthEventCount = (plannerEventsByDate.get(iso)?.length ?? 0) + (plannerTodoCountByDate.get(iso) ?? 0)
+      return {
+        iso,
+        day: date.getDate(),
+        inCurrentMonth: date.getMonth() === first.getMonth(),
+        isToday: iso === todayIso(),
+        count: monthEventCount,
+      }
+    })
+  }, [monthPlannerCursor, plannerEventsByDate, plannerTodoCountByDate])
+  const monthPlannerLabel = useMemo(
+    () =>
+      monthPlannerCursor.toLocaleDateString('de-DE', {
+        month: 'long',
+        year: 'numeric',
+      }),
+    [monthPlannerCursor]
+  )
+
+  const plannerSyncLabel = useMemo(() => {
+    if (!plannerSyncSettings.lastSyncedAt) return 'Noch nie synchronisiert'
+    const parsed = new Date(plannerSyncSettings.lastSyncedAt)
+    if (Number.isNaN(parsed.getTime())) return 'Noch nie synchronisiert'
+    return `Zuletzt: ${parsed.toLocaleString('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`
+  }, [plannerSyncSettings.lastSyncedAt])
+
+  const formatPlannerDay = (isoDate: string) => {
+    const parsed = new Date(`${isoDate}T00:00:00`)
+    if (Number.isNaN(parsed.getTime())) return isoDate
+    return parsed.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit' })
   }
 
-  const getSlotDisplay = (slotIndex: number) => {
-    const assigned = todosForDay[slotIndex]
-    if (!assigned) {
-      return {
-        avatar: 'TD',
-        title: 'Noch keine Aufgabe',
-        sub: 'In My Thesis',
+  const formatPlannerTime = (event: PlannerEvent) => {
+    if (event.allDay) return 'Ganztags'
+    return `${event.start} - ${event.end}`
+  }
+
+  const openDayPlanner = (isoDate: string) => {
+    setActiveDate(isoDate)
+    setDayPlannerDate(isoDate)
+    setMonthPlannerOpen(false)
+    setPlannerNotice(null)
+  }
+
+  const openMonthPlanner = () => {
+    setDayPlannerDate(null)
+    setPlannerEditorOpen(false)
+    setMonthPlannerCursor(toMonthStart(activeDate))
+    setMonthPlannerOpen(true)
+  }
+
+  const openPlannerEditorForCreate = (date: string, kind: 'session' | 'task') => {
+    setPlannerEditorMode('create')
+    setPlannerDraft(createPlannerDraft(date, kind))
+    setPlannerEditorOpen(true)
+    setPlannerNotice(null)
+  }
+
+  const openPlannerEditorForEdit = (event: PlannerEvent) => {
+    if (event.readOnly || event.source !== 'elea') return
+    setPlannerEditorMode('edit')
+    setPlannerDraft(createPlannerDraft(event.date, event.kind === 'task' ? 'task' : 'session', event))
+    setPlannerEditorOpen(true)
+    setPlannerNotice(null)
+  }
+
+  const deletePlannerEvent = (eventId: string) => {
+    setPlannerEleaEvents((current) => current.filter((event) => event.id !== eventId))
+    setPlannerNotice({ type: 'ok', text: 'Termin entfernt.' })
+  }
+
+  const getBlockedRanges = (isoDate: string, excludeEventId: string | null) => {
+    const ranges = plannerEvents
+      .filter((event) => event.date === isoDate && event.id !== excludeEventId)
+      .map((event) => {
+        if (event.allDay) return { start: 0, end: 24 * 60 }
+        let start = timeToMinutes(event.start)
+        let end = Math.max(timeToMinutes(event.end), start + 15)
+        if (event.source !== 'elea' && plannerSyncSettings.bufferMinutes > 0) {
+          start = Math.max(0, start - plannerSyncSettings.bufferMinutes)
+          end = Math.min(24 * 60, end + plannerSyncSettings.bufferMinutes)
+        }
+        return { start, end }
+      })
+    return mergeRanges(ranges)
+  }
+
+  const fitEventAroundBlockedRanges = (
+    isoDate: string,
+    draftStart: string,
+    draftEnd: string,
+    excludeEventId: string | null
+  ) => {
+    let start = timeToMinutes(draftStart)
+    const endInitial = timeToMinutes(draftEnd)
+    const duration = Math.max(endInitial - start, 15)
+    let end = start + duration
+    const blocked = getBlockedRanges(isoDate, excludeEventId)
+    let shifted = false
+    let guard = 0
+
+    while (guard < 48) {
+      guard += 1
+      const conflict = blocked.find((range) => start < range.end && end > range.start)
+      if (!conflict) {
+        if (end > 24 * 60) return null
+        return { start: minutesToTime(start), end: minutesToTime(end), shifted }
       }
+      start = conflict.end
+      end = start + duration
+      shifted = true
+      if (end > 24 * 60) return null
     }
-    const title = assigned.title.trim().length > 0 ? assigned.title : 'Aufgabe ohne Titel'
-    let sub = assigned.detail.trim().length > 0 ? assigned.detail : 'Details hinzufügen'
-    const remaining = Math.max(todosForDay.length - TIME_SLOTS.length, 0)
-    if (slotIndex === TIME_SLOTS.length - 1 && remaining > 0) {
-      sub = `${sub} - +${remaining} weitere`
+    return null
+  }
+
+  const savePlannerDraft = () => {
+    const title = plannerDraft.title.trim()
+    if (!title) {
+      setPlannerNotice({ type: 'warn', text: 'Bitte gib einen Titel ein.' })
+      return
     }
-    return {
-      avatar: getTodoInitials(title),
+    if (!plannerDraft.date) {
+      setPlannerNotice({ type: 'warn', text: 'Bitte wähle ein Datum.' })
+      return
+    }
+
+    let start = plannerDraft.start
+    let end = plannerDraft.end
+    let shiftedAroundConflicts = false
+
+    if (!plannerDraft.allDay) {
+      const startMin = timeToMinutes(start)
+      const endMin = timeToMinutes(end)
+      if (endMin <= startMin) {
+        setPlannerNotice({ type: 'warn', text: 'Endzeit muss nach der Startzeit liegen.' })
+        return
+      }
+      const fitted = fitEventAroundBlockedRanges(plannerDraft.date, start, end, plannerDraft.id)
+      if (!fitted) {
+        setPlannerNotice({ type: 'warn', text: 'Kein freier Slot verfügbar. Bitte Uhrzeit oder Tag ändern.' })
+        return
+      }
+      start = fitted.start
+      end = fitted.end
+      shiftedAroundConflicts = fitted.shifted
+    }
+
+    const id = plannerDraft.id ?? createPlannerId('elea-plan')
+    const nextEvent: PlannerEvent = {
+      id,
+      source: 'elea',
+      kind: plannerDraft.kind,
       title,
-      sub,
+      detail: plannerDraft.notes.trim(),
+      date: plannerDraft.date,
+      start: plannerDraft.allDay ? '00:00' : start,
+      end: plannerDraft.allDay ? '23:59' : end,
+      allDay: plannerDraft.allDay,
+      repeat: plannerDraft.repeat,
+      tags: splitList(plannerDraft.tags),
+      participants: splitList(plannerDraft.participants),
+      location: plannerDraft.location.trim(),
+      color: plannerDraft.color || plannerDefaultColor,
+      remind: plannerDraft.remind,
+      readOnly: false,
+      updatedAt: new Date().toISOString(),
+    }
+
+    setPlannerEleaEvents((current) => sortPlannerEvents([nextEvent, ...current.filter((event) => event.id !== id)]))
+    setPlannerEditorOpen(false)
+    setDayPlannerDate(plannerDraft.date)
+    setActiveDate(plannerDraft.date)
+    setPlannerNotice({
+      type: 'ok',
+      text: shiftedAroundConflicts
+        ? `Termin wurde automatisch auf ${start} - ${end} verschoben (wegen blockierter Slots).`
+        : plannerEditorMode === 'edit'
+          ? 'Termin aktualisiert.'
+          : 'Termin gespeichert.',
+    })
+  }
+
+  const uploadUniIcal = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const parsed = parseIcalEvents(text)
+      if (parsed.length === 0) {
+        setPlannerNotice({ type: 'warn', text: 'Keine Kalender-Events in der .ics Datei gefunden.' })
+        return
+      }
+      setPlannerExternalEvents((current) =>
+        sortPlannerEvents([...current.filter((row) => row.source !== 'external-uni'), ...parsed])
+      )
+      setPlannerSyncSettings((prev) => ({
+        ...prev,
+        uniConnected: true,
+        lastSyncedAt: new Date().toISOString(),
+      }))
+      setPlannerNotice({ type: 'ok', text: `${parsed.length} Uni-Termine importiert.` })
+    } catch (error) {
+      console.error('iCal Import fehlgeschlagen', error)
+      setPlannerNotice({ type: 'warn', text: 'iCal Datei konnte nicht gelesen werden.' })
+    } finally {
+      event.target.value = ''
     }
   }
+
+  const connectUniIcalLink = () => {
+    if (!plannerSyncSettings.uniIcalUrl.trim()) {
+      setPlannerNotice({ type: 'warn', text: 'Bitte zuerst einen iCal-Link einfügen.' })
+      return
+    }
+    setPlannerSyncSettings((prev) => ({
+      ...prev,
+      uniConnected: true,
+      lastSyncedAt: new Date().toISOString(),
+    }))
+    setPlannerNotice({
+      type: 'ok',
+      text: 'iCal-Link gespeichert. Für verlässlichen Import nutze zusätzlich den .ics Upload.',
+    })
+  }
+
+  const toggleGoogleConnection = () => {
+    setPlannerSyncSettings((prev) => {
+      const nextConnected = !prev.googleConnected
+      if (!nextConnected) {
+        setPlannerExternalEvents((current) => current.filter((event) => event.source !== 'external-google'))
+      }
+      return {
+        ...prev,
+        googleConnected: nextConnected,
+        lastSyncedAt: nextConnected ? new Date().toISOString() : prev.lastSyncedAt,
+      }
+    })
+    setPlannerNotice((prev) => (prev?.type === 'warn' ? null : { type: 'ok', text: 'Google Status aktualisiert.' }))
+  }
+
+  const syncPlannerEvents = useCallback(
+    async (origin: 'manual' | 'auto') => {
+      setPlannerExternalEvents((current) => {
+        let nextExternal = current.filter((event) => event.source !== 'external-google')
+        if (plannerSyncSettings.googleConnected) {
+          const googleSeed = buildGoogleSeedEvents(activeDate)
+          nextExternal = [...nextExternal, ...googleSeed]
+        }
+        return sortPlannerEvents(nextExternal)
+      })
+
+      if (origin === 'manual') {
+        setPlannerNotice({
+          type: 'ok',
+          text:
+            plannerSyncSettings.googleConnected || plannerSyncSettings.uniConnected
+              ? 'Zeitplan synchronisiert.'
+              : 'Keine Quelle verbunden. Verbinde Google oder Uni iCal.',
+        })
+      }
+
+      setPlannerSyncSettings((prev) => ({ ...prev, lastSyncedAt: new Date().toISOString() }))
+    },
+    [activeDate, plannerSyncSettings.googleConnected, plannerSyncSettings.uniConnected]
+  )
+
+  useEffect(() => {
+    if (!plannerSyncSettings.googleConnected && !plannerSyncSettings.uniConnected) return
+    const timer = window.setInterval(() => {
+      void syncPlannerEvents('auto')
+    }, plannerSyncSettings.autoSyncMinutes * 60 * 1000)
+    return () => window.clearInterval(timer)
+  }, [
+    plannerSyncSettings.autoSyncMinutes,
+    plannerSyncSettings.googleConnected,
+    plannerSyncSettings.uniConnected,
+    syncPlannerEvents,
+  ])
+
+  useEffect(() => {
+    if (!plannerSyncSettings.googleConnected) return
+    void syncPlannerEvents('auto')
+  }, [plannerSyncSettings.googleConnected, activeDate, syncPlannerEvents])
+
 
   const insertSupportTag = (tag: string) => {
     setSupportDraft((prev) => {
@@ -1008,43 +1705,84 @@ const DashboardPage = () => {
                 </button>
               </div>
             </div>
-            <div className="calendar">
-              {weekDays.map((day) => (
+            <div className={`planner-sync-shell ${plannerSyncExpanded ? 'expanded' : 'collapsed'}`}>
+              <div className="planner-top-actions">
                 <button
-                  key={day.iso}
-                  className={`calendar-day ${day.iso === activeDate ? 'active' : ''}`}
+                  className="planner-expand-btn"
                   type="button"
-                  onClick={() => setActiveDate(day.iso)}
+                  onClick={() => setPlannerSyncExpanded((prev) => !prev)}
                 >
-                  <span>{day.label}</span>
-                  <strong>{day.day}</strong>
+                  Kalender verbinden
                 </button>
-              ))}
+                <button className="planner-month-open-btn" type="button" onClick={openMonthPlanner}>
+                  Monatsansicht
+                </button>
+              </div>
+              {plannerSyncExpanded && (
+                <>
+              <div className="planner-sync-row">
+                <button
+                  className={`planner-connect-btn ${plannerSyncSettings.googleConnected ? 'connected' : ''}`}
+                  type="button"
+                  onClick={toggleGoogleConnection}
+                >
+                  {plannerSyncSettings.googleConnected ? 'Google verbunden' : 'Mit Google verbinden'}
+                </button>
+                <button className="planner-refresh-btn" type="button" onClick={() => void syncPlannerEvents('manual')}>
+                  Refresh
+                </button>
+              </div>
+              <div className="planner-sync-row planner-sync-row-link">
+                <input
+                  className="planner-ical-input"
+                  value={plannerSyncSettings.uniIcalUrl}
+                  onChange={(event) =>
+                    setPlannerSyncSettings((prev) => ({
+                      ...prev,
+                      uniIcalUrl: event.target.value,
+                    }))
+                  }
+                  placeholder="Uni iCal-Link einfügen"
+                />
+                <button className="ghost planner-mini-btn" type="button" onClick={connectUniIcalLink}>
+                  Speichern
+                </button>
+              </div>
+              <div className="planner-sync-row">
+                <button className="ghost planner-mini-btn" type="button" onClick={() => uniIcalInputRef.current?.click()}>
+                  .ics Upload
+                </button>
+              </div>
+              <input ref={uniIcalInputRef} type="file" accept=".ics,text/calendar" className="planner-hidden-input" onChange={uploadUniIcal} />
+              <p className="planner-sync-hint">Externe Termine bleiben read-only. elea plant automatisch drumherum.</p>
+              <p className="planner-sync-meta">{plannerSyncLabel}</p>
+                </>
+              )}
             </div>
-            {TIME_SLOTS.map((slot, index) => {
-              const display = getSlotDisplay(index)
-              return (
-                <div key={slot.id} className="timetable-slot">
-                  <div className="slot-time">{slot.label}</div>
-                  <div className="slot-card">
-                    <div className="slot-avatar">{display.avatar}</div>
-                    <div className="slot-body">
-                      <div className="slot-title">{display.title}</div>
-                      <div className="slot-sub">{display.sub}</div>
-                    </div>
-                    <button
-                      className="slot-action"
-                      type="button"
-                      title="In My Thesis bearbeiten"
-                      aria-label="Aufgabe zuweisen"
-                      onClick={() => navigate('/my-thesis')}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
+            <div className="calendar planner-week-grid">
+              {weekDays.map((day) => {
+                const dayEvents = plannerEventsByDate.get(day.iso) ?? []
+                return (
+                  <button
+                    key={day.iso}
+                    className={`calendar-day ${day.iso === activeDate ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => openDayPlanner(day.iso)}
+                  >
+                    <span>{day.label}</span>
+                    <strong>{day.day}</strong>
+                    <small>
+                      {dayEvents.length === 0 ? 'frei' : `${dayEvents.length} Termin${dayEvents.length > 1 ? 'e' : ''}`}
+                    </small>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="planner-legend">
+              <span className="planner-legend-chip elea">elea Sessions</span>
+              <span className="planner-legend-chip external">Externe Events</span>
+            </div>
+            {plannerNotice && <div className={`support-notice ${plannerNotice.type}`}>{plannerNotice.text}</div>}
           </div>
         </aside>
 
@@ -1312,6 +2050,303 @@ const DashboardPage = () => {
 
         </aside>
       </main>
+
+      {monthPlannerOpen && (
+        <div className="modal-backdrop" onClick={() => setMonthPlannerOpen(false)}>
+          <div className="modal planner-month-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="planner-month-head">
+              <button
+                className="ghost planner-mini-btn"
+                type="button"
+                onClick={() => setMonthPlannerCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+              >
+                &lt;
+              </button>
+              <h2>{monthPlannerLabel}</h2>
+              <div className="planner-month-head-actions">
+                <button
+                  className="ghost planner-mini-btn"
+                  type="button"
+                  onClick={() => setMonthPlannerCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                >
+                  &gt;
+                </button>
+                <button className="ghost planner-mini-btn" type="button" onClick={() => setMonthPlannerOpen(false)}>
+                  Schliessen
+                </button>
+              </div>
+            </div>
+            <div className="planner-month-weekdays">
+              {weekdayLabels.map((label) => (
+                <span key={`month-week-${label}`}>{label}</span>
+              ))}
+            </div>
+            <div className="planner-month-grid">
+              {monthPlannerDays.map((day) => (
+                <button
+                  key={`month-day-${day.iso}`}
+                  className={`planner-month-day ${day.inCurrentMonth ? '' : 'outside'} ${day.isToday ? 'today' : ''} ${
+                    day.iso === activeDate ? 'active' : ''
+                  }`}
+                  type="button"
+                  onClick={() => openDayPlanner(day.iso)}
+                >
+                  <strong>{day.day}</strong>
+                  {day.count > 0 ? <small>{day.count} Eintrag{day.count > 1 ? 'e' : ''}</small> : <small>frei</small>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dayPlannerDate && (
+        <div className="modal-backdrop" onClick={() => setDayPlannerDate(null)}>
+          <div className="modal planner-day-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="planner-modal-head">
+              <div>
+                <h2>{formatPlannerDay(plannerPopupDate)}</h2>
+                <p>Alle Termine dieses Tages. Externe Termine sind grau und blockieren Slots automatisch.</p>
+              </div>
+              <button className="ghost" type="button" onClick={() => setDayPlannerDate(null)}>
+                Schliessen
+              </button>
+            </div>
+            <div className="planner-modal-actions">
+              <button className="ghost planner-mini-btn" type="button" onClick={() => openPlannerEditorForCreate(plannerPopupDate, 'task')}>
+                Neue Aufgabe
+              </button>
+              <button className="primary planner-add-btn" type="button" onClick={() => openPlannerEditorForCreate(plannerPopupDate, 'session')}>
+                Neuer Termin
+              </button>
+            </div>
+            <div className="planner-day-list">
+              {!plannerPopupHasEntries ? (
+                <div className="planner-empty">Noch keine Termine fuer diesen Tag.</div>
+              ) : (
+                <>
+                  {plannerPopupEvents.map((event) => (
+                    <article key={event.id} className={`planner-day-item ${event.source === 'elea' ? 'elea' : 'external'}`}>
+                      <div className="planner-day-time">{formatPlannerTime(event)}</div>
+                      <div className="planner-day-body">
+                        <strong>{event.title}</strong>
+                        {event.location && <span>{event.location}</span>}
+                        {event.detail && <p>{event.detail}</p>}
+                        <div className="planner-day-meta">
+                          {event.tags.slice(0, 3).map((tag) => (
+                            <span key={`${event.id}-${tag}`}>{tag}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="planner-day-actions">
+                        {event.source === 'elea' ? (
+                          <>
+                            <button className="ghost planner-mini-btn" type="button" onClick={() => openPlannerEditorForEdit(event)}>
+                              Bearbeiten
+                            </button>
+                            <button className="ghost planner-mini-btn danger" type="button" onClick={() => deletePlannerEvent(event.id)}>
+                              Loeschen
+                            </button>
+                          </>
+                        ) : (
+                          <span className="planner-readonly-pill">Nur lesen</span>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                  {plannerPopupTodos.map((todo) => (
+                    <article key={`todo-${todo.id}`} className={`planner-day-item ${todo.done ? 'external' : 'elea'}`}>
+                      <div className="planner-day-time">{todo.done ? 'Erledigt' : 'Aufgabe'}</div>
+                      <div className="planner-day-body">
+                        <strong>{todo.title.trim() || 'Aufgabe ohne Titel'}</strong>
+                        {todo.detail.trim() && <p>{todo.detail}</p>}
+                        <div className="planner-day-meta">
+                          <span>{todo.done ? 'Status: erledigt' : 'Status: offen'}</span>
+                          <span>My Thesis</span>
+                        </div>
+                      </div>
+                      <div className="planner-day-actions">
+                        <button className="ghost planner-mini-btn" type="button" onClick={() => navigate('/my-thesis')}>
+                          Zu My Thesis
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {plannerEditorOpen && (
+        <div className="modal-backdrop" onClick={() => setPlannerEditorOpen(false)}>
+          <div className="modal planner-editor-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="planner-editor-head">
+              <button className="ghost planner-mini-btn" type="button" onClick={() => setPlannerEditorOpen(false)}>
+                Zurueck
+              </button>
+              <h2>{plannerEditorMode === 'edit' ? 'Termin bearbeiten' : 'Neuer Termin'}</h2>
+              <button className="primary planner-add-btn" type="button" onClick={savePlannerDraft}>
+                Speichern
+              </button>
+            </div>
+            <div className="planner-editor-form">
+              <label>
+                Titel
+                <input
+                  value={plannerDraft.title}
+                  onChange={(event) => setPlannerDraft((prev) => ({ ...prev, title: event.target.value }))}
+                  placeholder="Titel eingeben..."
+                />
+              </label>
+              <div className="planner-editor-dual">
+                <label>
+                  Typ
+                  <select
+                    value={plannerDraft.kind}
+                    onChange={(event) =>
+                      setPlannerDraft((prev) => ({
+                        ...prev,
+                        kind: event.target.value === 'task' ? 'task' : 'session',
+                      }))
+                    }
+                  >
+                    <option value="session">Termin</option>
+                    <option value="task">Aufgabe</option>
+                  </select>
+                </label>
+                <label>
+                  Datum
+                  <input
+                    type="date"
+                    value={plannerDraft.date}
+                    onChange={(event) => setPlannerDraft((prev) => ({ ...prev, date: event.target.value }))}
+                  />
+                </label>
+              </div>
+              <label className="planner-all-day-toggle">
+                <span>Ganztags</span>
+                <input
+                  type="checkbox"
+                  checked={plannerDraft.allDay}
+                  onChange={(event) => setPlannerDraft((prev) => ({ ...prev, allDay: event.target.checked }))}
+                />
+              </label>
+              {!plannerDraft.allDay && (
+                <div className="planner-editor-dual">
+                  <label>
+                    Start
+                    <input
+                      type="time"
+                      value={plannerDraft.start}
+                      onChange={(event) => setPlannerDraft((prev) => ({ ...prev, start: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Ende
+                    <input
+                      type="time"
+                      value={plannerDraft.end}
+                      onChange={(event) => setPlannerDraft((prev) => ({ ...prev, end: event.target.value }))}
+                    />
+                  </label>
+                </div>
+              )}
+              <div className="planner-editor-dual">
+                <label>
+                  Wiederholung
+                  <select
+                    value={plannerDraft.repeat}
+                    onChange={(event) =>
+                      setPlannerDraft((prev) => ({
+                        ...prev,
+                        repeat: plannerRepeatOptions.includes(event.target.value as PlannerRepeat)
+                          ? (event.target.value as PlannerRepeat)
+                          : 'never',
+                      }))
+                    }
+                  >
+                    {plannerRepeatOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {plannerRepeatLabels[option]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Erinnerung
+                  <select
+                    value={plannerDraft.remind}
+                    onChange={(event) =>
+                      setPlannerDraft((prev) => ({
+                        ...prev,
+                        remind: plannerReminderOptions.includes(event.target.value as PlannerReminder)
+                          ? (event.target.value as PlannerReminder)
+                          : '30m',
+                      }))
+                    }
+                  >
+                    {plannerReminderOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {plannerReminderLabels[option]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label>
+                Stichwoerter
+                <input
+                  value={plannerDraft.tags}
+                  onChange={(event) => setPlannerDraft((prev) => ({ ...prev, tags: event.target.value }))}
+                  placeholder="z. B. Fokus, Seminar"
+                />
+              </label>
+              <label>
+                Teilnehmende
+                <input
+                  value={plannerDraft.participants}
+                  onChange={(event) => setPlannerDraft((prev) => ({ ...prev, participants: event.target.value }))}
+                  placeholder="Anna, Lernbuddy"
+                />
+              </label>
+              <label>
+                Ort
+                <input
+                  value={plannerDraft.location}
+                  onChange={(event) => setPlannerDraft((prev) => ({ ...prev, location: event.target.value }))}
+                  placeholder="Ort eingeben..."
+                />
+              </label>
+              <div className="planner-color-picker">
+                <span>Farbe</span>
+                <div>
+                  {plannerColorOptions.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      className={`planner-color-dot ${plannerDraft.color === color ? 'active' : ''}`}
+                      style={{ '--planner-dot': color } as CSSProperties}
+                      onClick={() => setPlannerDraft((prev) => ({ ...prev, color }))}
+                      aria-label={`Farbe ${color}`}
+                    />
+                  ))}
+                </div>
+              </div>
+              <label>
+                Notizen
+                <textarea
+                  value={plannerDraft.notes}
+                  onChange={(event) => setPlannerDraft((prev) => ({ ...prev, notes: event.target.value }))}
+                  placeholder="Kurze Notiz eingeben..."
+                />
+              </label>
+              {plannerNotice && <div className={`support-notice ${plannerNotice.type}`}>{plannerNotice.text}</div>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {askEleaOpen && (
         <div className="modal-backdrop" onClick={() => setAskEleaOpen(false)}>
@@ -1593,3 +2628,6 @@ const CommitmentModal = ({ profile, onClose }: { profile: Profile; onClose: () =
 }
 
 export default DashboardPage
+
+
+
