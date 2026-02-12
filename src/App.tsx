@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
-import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import LoadingTicker from './components/LoadingTicker'
 import { EleaFeatureOrbit } from './components/EleaFeatureOrbit'
 import { PanicModal } from './components/PanicModal'
@@ -8,6 +8,7 @@ import { recordSecurityEvent, trackActivityEvent } from './lib/adminData'
 import { buildReferralShareLink, captureReferralCodeFromSearch, claimPendingReferral, copyTextToClipboard, ensureOwnReferralCode } from './lib/referrals'
 import { useStress } from './hooks/useStress'
 import { isAdminEmail } from './lib/admin'
+import { STORAGE_KEYS, parseJson, toLocalIsoDate, type MentalMood, type TodoItem } from './lib/storage'
 import AdminDashboardPage from './pages/AdminDashboardPage'
 import AdminLoginPage from './pages/AdminLoginPage'
 import AuthPage from './pages/AuthPage'
@@ -41,14 +42,85 @@ export const App = () => {
   )
 }
 
+const moodOptions: Array<{ id: MentalMood; label: string; group: 'bad' | 'ok' | 'good' }> = [
+  { id: 'focused', label: 'Fokussiert', group: 'ok' },
+  { id: 'overwhelmed', label: 'Überfordert', group: 'bad' },
+  { id: 'happy', label: 'Glücklich', group: 'good' },
+  { id: 'depressed', label: 'Depressiv', group: 'bad' },
+  { id: 'motivated', label: 'Motiviert', group: 'good' },
+]
+
+const moodScoreMap: Record<MentalMood, number> = {
+  focused: 62,
+  overwhelmed: 20,
+  happy: 86,
+  depressed: 10,
+  motivated: 78,
+}
+
+const renderMoodGlyph = (mood: MentalMood) => {
+  if (mood === 'focused') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="#E7FBF8" stroke="#129689" strokeWidth="1.4" />
+        <circle cx="12" cy="12" r="4.6" fill="none" stroke="#0D6F75" strokeWidth="1.3" />
+        <circle cx="12" cy="12" r="1.6" fill="#0D6F75" />
+        <path d="M12 5.7v2.1M12 16.2v2.1M5.7 12h2.1M16.2 12h2.1" stroke="#0D6F75" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (mood === 'overwhelmed') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="#FFF4E8" stroke="#D98C3B" strokeWidth="1.4" />
+        <path d="M8.1 10.1l2-1.4M15.9 10.1l-2-1.4" stroke="#A45E18" strokeWidth="1.3" strokeLinecap="round" />
+        <path d="M7.8 15.8c1.2-.9 2.6-1.3 4.2-1.3s3 .4 4.2 1.3" stroke="#A45E18" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+        <path d="M6.6 7.7c.6-.5 1.3-.8 2.1-.9M17.4 7.7c-.6-.5-1.3-.8-2.1-.9" stroke="#D98C3B" strokeWidth="1.1" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (mood === 'happy') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="#EAFCEE" stroke="#3B9D69" strokeWidth="1.4" />
+        <circle cx="9" cy="10" r="1.15" fill="#286948" />
+        <circle cx="15" cy="10" r="1.15" fill="#286948" />
+        <path d="M8.1 14.4c1 1.8 2.3 2.7 3.9 2.7s2.9-.9 3.9-2.7" stroke="#286948" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+      </svg>
+    )
+  }
+  if (mood === 'depressed') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="#EEF4F8" stroke="#6A8498" strokeWidth="1.4" />
+        <circle cx="9" cy="10.5" r="1.05" fill="#4F6475" />
+        <circle cx="15" cy="10.5" r="1.05" fill="#4F6475" />
+        <path d="M8.2 16.4c1.1-1.2 2.3-1.8 3.8-1.8s2.7.6 3.8 1.8" stroke="#4F6475" strokeWidth="1.35" strokeLinecap="round" fill="none" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="#EAF8FF" stroke="#2F8CB9" strokeWidth="1.4" />
+      <path d="M12 16.4V7.8M8.6 11.2 12 7.8l3.4 3.4" stroke="#1C688F" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <circle cx="12" cy="16.4" r="1.35" fill="#1C688F" />
+    </svg>
+  )
+}
+
 const AppLayout = () => {
   const { user } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
   const [panicOpen, setPanicOpen] = useState(false)
+  const [mentalOpen, setMentalOpen] = useState(false)
   const [faqOrbitOpen, setFaqOrbitOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [stressSaved, setStressSaved] = useState(false)
+  const [mentalNotice, setMentalNotice] = useState<string | null>(null)
+  const [mentalActionText, setMentalActionText] = useState('')
+  const [mentalActionDetail, setMentalActionDetail] = useState('')
+  const [mentalActionNeedsPlanButton, setMentalActionNeedsPlanButton] = useState(false)
   const [referralLink, setReferralLink] = useState('')
   const [referralFeedback, setReferralFeedback] = useState<string | null>(null)
   const [referralCtaLabel, setReferralCtaLabel] = useState('Jetzt sparen')
@@ -71,6 +143,83 @@ const AppLayout = () => {
     const second = parts[1]?.[0] ?? local[1] ?? ''
     return `${first}${second}`.toUpperCase()
   }, [user?.email])
+
+  const todosSnapshot = useMemo(
+    () => parseJson<TodoItem[]>(localStorage.getItem(STORAGE_KEYS.todos), []),
+    [location.pathname, stress.checkIns.length]
+  )
+
+  const mentalStats7d = useMemo(() => {
+    const counters = { bad: 0, ok: 0, good: 0 }
+    stress.checkIns7d.forEach((entry) => {
+      const mood = moodOptions.find((item) => item.id === entry.mood)
+      const group = mood?.group ?? 'ok'
+      if (group === 'bad') counters.bad += 1
+      if (group === 'ok') counters.ok += 1
+      if (group === 'good') counters.good += 1
+    })
+    return counters
+  }, [stress.checkIns7d])
+
+  const mentalTrendText = stress.trend7d
+
+  const mentalInsightList = useMemo(() => {
+    const items: string[] = []
+    const lateChecks = stress.checkIns7d.filter((entry) => {
+      const parsed = new Date(entry.createdAt)
+      if (Number.isNaN(parsed.getTime())) return false
+      return parsed.getHours() >= 22
+    }).length
+    if (lateChecks >= 4) {
+      items.push('Du warst die letzten 7 Tage an 4+ Tagen nach 22 Uhr aktiv - Risiko für schlechteren Schlaf.')
+    }
+
+    const scoreByDate = new Map<string, number[]>()
+    stress.checkIns7d.forEach((entry) => {
+      if (!scoreByDate.has(entry.date)) scoreByDate.set(entry.date, [])
+      scoreByDate.get(entry.date)?.push(moodScoreMap[entry.mood])
+    })
+    const doneByDate = new Map<string, number>()
+    todosSnapshot.forEach((todo) => {
+      if (!todo.date || !todo.done) return
+      doneByDate.set(todo.date, (doneByDate.get(todo.date) ?? 0) + 1)
+    })
+    const highTaskScores: number[] = []
+    const lowTaskScores: number[] = []
+    scoreByDate.forEach((scores, date) => {
+      const avg = Math.round(scores.reduce((sum, score) => sum + score, 0) / Math.max(scores.length, 1))
+      if ((doneByDate.get(date) ?? 0) >= 2) highTaskScores.push(avg)
+      else lowTaskScores.push(avg)
+    })
+    if (highTaskScores.length > 0 && lowTaskScores.length > 0) {
+      const avgHigh = Math.round(highTaskScores.reduce((sum, score) => sum + score, 0) / highTaskScores.length)
+      const avgLow = Math.round(lowTaskScores.reduce((sum, score) => sum + score, 0) / lowTaskScores.length)
+      const delta = avgHigh - avgLow
+      if (delta >= 8) {
+        items.push(`An Tagen mit 2+ erledigten Tasks war dein Mood Ø ${delta} Punkte höher.`)
+      }
+    }
+
+    const highStressDays = new Set(stress.checkIns7d.filter((entry) => entry.value > 70).map((entry) => entry.date)).size
+    if (highStressDays >= 3) {
+      items.push('Dein Stress war an 3 Tagen über 70. Rede heute 2 Minuten ehrlich mit einer Person deines Vertrauens.')
+    }
+    return items.slice(0, 3)
+  }, [stress.checkIns7d, todosSnapshot])
+
+  const mentalStreakDays = useMemo(() => {
+    if (stress.checkIns.length === 0) return 0
+    const uniqueDays = Array.from(new Set(stress.checkIns.map((entry) => entry.date))).sort((a, b) => b.localeCompare(a))
+    let streak = 0
+    let cursor = new Date()
+    for (const date of uniqueDays) {
+      const expected = toLocalIsoDate(cursor)
+      if (date !== expected) break
+      streak += 1
+      cursor.setDate(cursor.getDate() - 1)
+    }
+    return streak
+  }, [stress.checkIns])
 
   useEffect(() => {
     setMenuOpen(false)
@@ -107,10 +256,10 @@ const AppLayout = () => {
   }, [])
 
   useEffect(() => {
-    if (!stressSaved) return
-    const timer = window.setTimeout(() => setStressSaved(false), 1400)
+    if (!mentalNotice) return
+    const timer = window.setTimeout(() => setMentalNotice(null), 2600)
     return () => window.clearTimeout(timer)
-  }, [stressSaved])
+  }, [mentalNotice])
 
   useEffect(() => {
     const captured = captureReferralCodeFromSearch(location.search)
@@ -210,9 +359,49 @@ const AppLayout = () => {
     }
   }, [location.pathname, user?.id])
 
-  const handleStressSave = () => {
-    const saved = stress.save()
-    if (saved) setStressSaved(true)
+  const handleMentalCheckInSave = () => {
+    const entry = stress.saveCheckIn({
+      mood: stress.mood,
+      value: stress.value,
+      energy: stress.energy,
+    })
+    if (!entry) {
+      setMentalNotice(`Heute sind bereits ${stress.dailyLimit} Check-ins gespeichert.`)
+      return
+    }
+    setMentalNotice('Check-in gespeichert.')
+
+    const recentBadDays = new Set(
+      stress.checkIns
+        .concat(entry)
+        .filter((item) => item.value >= 70 && (item.mood === 'overwhelmed' || item.mood === 'depressed'))
+        .map((item) => item.date)
+    ).size
+
+    if (entry.value >= 70 && entry.energy <= 40) {
+      setMentalActionText('5-Min-Reset')
+      setMentalActionDetail('Stell Timer 5 Min., Handy weg, atme 4-4-4 und starte dann genau 1 kleine Aufgabe.')
+      setMentalActionNeedsPlanButton(false)
+      return
+    }
+
+    if (entry.value >= 70 && entry.energy > 40) {
+      setMentalActionText('Jetzt 20 Minuten fokussiert arbeiten.')
+      setMentalActionDetail('Arbeite jetzt 20 Minuten fokussiert. Danach 2 Minuten kurzer Spaziergang.')
+      setMentalActionNeedsPlanButton(false)
+      return
+    }
+
+    if (recentBadDays >= 3) {
+      setMentalActionText('Check deinen Wochenplan')
+      setMentalActionDetail('Wenn mehrere Tage schwer waren, passe jetzt die nächsten 3 Tage an.')
+      setMentalActionNeedsPlanButton(true)
+      return
+    }
+
+    setMentalActionText('Mikro-Aktion für heute')
+    setMentalActionDetail('Wähle jetzt genau eine Aufgabe unter 15 Minuten und starte sofort ohne Perfektionsdruck.')
+    setMentalActionNeedsPlanButton(false)
   }
 
   const handleReferralShare = async () => {
@@ -333,27 +522,15 @@ const AppLayout = () => {
           <img className="brand-logo" src="/elealogoneu.png" alt="ELEA" />
         </div>
 
-        <div className={`mobile-topbar-utils ${stressSaved ? 'saved' : ''}`} aria-label="Mobile Schnellaktionen">
-          <div className="mobile-mental-checker">
-            <span className="mobile-mental-label">MH</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={stress.value}
-              onChange={(event) => stress.setValue(Number(event.target.value))}
-              aria-label="Mental Health Wert"
-            />
-            <span className="mobile-mental-value">{stress.value}</span>
-          </div>
+        <div className="mobile-topbar-utils" aria-label="Mobile Schnellaktionen">
           <button
-            className={`mobile-mental-save ${stressSaved ? 'saved' : ''}`}
-            onClick={handleStressSave}
-            disabled={!stress.canSave}
-            aria-label="Mental Health speichern"
-            title="Mental Health speichern"
+            className="mobile-mental-heart-button"
+            type="button"
+            onClick={() => setMentalOpen(true)}
+            aria-label="Mental Health Check öffnen"
+            title="Mental Health Check öffnen"
           >
-            💾
+            <img src="/mental-heart-icon.svg" alt="" />
           </button>
           <button
             className="mobile-panic-button"
@@ -427,28 +604,15 @@ const AppLayout = () => {
             <span />
           </button>
 
-          <div className={`stress-mini ${stressSaved ? 'saved' : ''}`}>
-            <span>Mental Health</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={stress.value}
-              onChange={(event) => stress.setValue(Number(event.target.value))}
-            />
-            <span className="stress-mini-value">{stress.value}</span>
-            <button
-              className={`save-icon-button ${stressSaved ? 'saved' : ''}`}
-              onClick={handleStressSave}
-              disabled={!stress.canSave}
-              aria-label="Mental Health speichern"
-              title="Mental Health speichern"
-            >
-              💾
-            </button>
-            <span className={`stress-save-ok ${stressSaved ? 'show' : ''}`}>✓</span>
-            {!stress.canSave && <span className="limit-note">{stress.dailyLimit}/Tag erreicht</span>}
-          </div>
+          <button
+            className="mental-heart-button"
+            type="button"
+            onClick={() => setMentalOpen(true)}
+            aria-label="Mental Health Check öffnen"
+            title="Mental Health Check öffnen"
+          >
+            <img src="/mental-heart-icon.svg" alt="" />
+          </button>
 
           <button
             className="panic-button"
@@ -494,6 +658,135 @@ const AppLayout = () => {
       )}
 
       <Outlet />
+
+      {mentalOpen && (
+        <div className="modal-backdrop" onClick={() => setMentalOpen(false)}>
+          <div className="modal mental-check-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="mental-check-head">
+              <div>
+                <h2>Mental Health Check</h2>
+                <p>1 bis 3 Check-ins täglich. Kurz, klar, hilfreich.</p>
+              </div>
+              <button className="ghost" type="button" onClick={() => setMentalOpen(false)}>
+                Schließen
+              </button>
+            </div>
+
+            <div className="mental-mood-grid" role="radiogroup" aria-label="Aktuelle Stimmung auswählen">
+              {moodOptions.map((option) => (
+                <button
+                  key={option.id}
+                  className={`mental-mood-chip ${stress.mood === option.id ? 'active' : ''}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={stress.mood === option.id}
+                  onClick={() => stress.setMood(option.id)}
+                >
+                  <span className="mental-mood-icon">{renderMoodGlyph(option.id)}</span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="mental-slider-grid">
+              <label className="mental-slider-row">
+                <span>Stress</span>
+                <input
+                  className="mental-range"
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={stress.value}
+                  onChange={(event) => stress.setValue(Number(event.target.value))}
+                />
+                <strong>{stress.value}</strong>
+              </label>
+              <label className="mental-slider-row">
+                <span>Energie</span>
+                <input
+                  className="mental-range"
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={stress.energy}
+                  onChange={(event) => stress.setEnergy(Number(event.target.value))}
+                />
+                <strong>{stress.energy}</strong>
+              </label>
+            </div>
+
+            <div className="mental-check-footer">
+              <button className="primary mental-save-button" type="button" onClick={handleMentalCheckInSave}>
+                Check-in speichern
+              </button>
+              <span>{stress.todayCount}/{stress.dailyLimit} heute</span>
+            </div>
+
+            {mentalNotice && <div className="mental-notice">{mentalNotice}</div>}
+
+            <div className="mental-detail-stack">
+              <div className="mental-stat-card">
+                <span className="mental-card-kicker">Mini-Statistik</span>
+                <p className="mental-stat-line">
+                  Letzte 7 Tage: {mentalStats7d.bad}x überfordert, {mentalStats7d.ok}x ok, {mentalStats7d.good}x gut = Tendenz:{' '}
+                  <strong>{mentalTrendText}</strong>.
+                </p>
+              </div>
+
+              {mentalActionText && (
+                <div className="mental-action-box">
+                  <span className="mental-card-kicker">Nächste Mikro-Aktion</span>
+                  <strong>{mentalActionText}</strong>
+                  <p>{mentalActionDetail}</p>
+                  {mentalActionNeedsPlanButton && (
+                    <button className="ghost mental-action-link" type="button" onClick={() => navigate('/my-thesis')}>
+                      Plan für nächste 3 Tage anpassen
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="mental-weekly-foot">
+                {mentalStreakDays >= 2 && <p>Du hast deine mentale Gesundheit {mentalStreakDays} Tage in Folge bewusst gecheckt. Das ist stark.</p>}
+                <p>
+                  Wochensicht: <strong>{stress.mentalScore7d}/100</strong> · Trend <strong>{stress.trend7d}</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="mental-lower-grid">
+              {mentalInsightList.length > 0 && (
+                <div className="mental-insight-block">
+                  <span className="mental-card-kicker">Smart Insights</span>
+                  <ul>
+                    {mentalInsightList.map((item, index) => (
+                      <li key={`${item}-${index}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="mental-routine-block">
+                <div className="mental-routine-card">
+                  <strong>Vor-Klausur-Routine (5 Minuten)</strong>
+                  <ol>
+                    <li>Drei tiefe Atemzüge.</li>
+                    <li>Ein Satz: „Heute ist ein Schritt, nicht mein ganzes Leben.“</li>
+                    <li>Zwei Minuten Mikroplanung.</li>
+                  </ol>
+                </div>
+                <div className="mental-routine-card">
+                  <strong>Abend-Shutdown (3 Minuten)</strong>
+                  <ol>
+                    <li>Regler ausfüllen.</li>
+                    <li>Reflexion: „Was war heute ein kleiner Win?“</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="floating-help" aria-label="Hilfe und Empfehlungsaktionen">
         <button className="faq-button floating-faq" type="button" aria-label="FAQ" onClick={() => setFaqOrbitOpen(true)}>

@@ -13,6 +13,17 @@ export type StressEntry = {
   value: number
 }
 
+export type MentalMood = 'focused' | 'overwhelmed' | 'happy' | 'depressed' | 'motivated'
+
+export type MentalCheckInEntry = {
+  id: string
+  date: string
+  value: number
+  energy: number
+  mood: MentalMood
+  createdAt: string
+}
+
 export type AssessmentResult = {
   answers: Record<string, string>
   score: number
@@ -188,6 +199,7 @@ export const STORAGE_KEYS = {
   profile: 'elea_profile',
   stress: 'elea_stress',
   stressValue: 'elea_stress_value',
+  mentalCheckIns: 'elea_mental_checkins',
   plan: 'elea_plan',
   referralOwnCode: 'elea_referral_own_code',
   referralPendingCode: 'elea_referral_pending_code',
@@ -214,6 +226,7 @@ export const USER_LOCAL_KEYS = [
   STORAGE_KEYS.profile,
   STORAGE_KEYS.stress,
   STORAGE_KEYS.stressValue,
+  STORAGE_KEYS.mentalCheckIns,
   STORAGE_KEYS.plan,
   STORAGE_KEYS.referralOwnCode,
   STORAGE_KEYS.referralPendingCode,

@@ -12228,3 +12228,529 @@ select {
     font-size: 11px;
   }
 }
+
+/* Mental Health checker redesign */
+.mental-heart-button,
+.mobile-mental-heart-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(27, 176, 162, 0.38);
+  background: linear-gradient(160deg, rgba(241, 254, 251, 0.95) 0%, rgba(220, 247, 242, 0.92) 100%);
+  box-shadow: 0 10px 24px rgba(25, 97, 104, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  backdrop-filter: blur(8px);
+}
+
+.mental-heart-button img,
+.mobile-mental-heart-button img {
+  width: 22px;
+  height: 22px;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.35));
+}
+
+.mental-heart-button:hover,
+.mobile-mental-heart-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(23, 158, 145, 0.62);
+  box-shadow: 0 12px 24px rgba(24, 111, 117, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.mental-heart-button:active,
+.mobile-mental-heart-button:active {
+  transform: translateY(0);
+}
+
+.mobile-panic-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(27, 176, 162, 0.28);
+  background: linear-gradient(160deg, rgba(241, 254, 251, 0.9) 0%, rgba(224, 248, 244, 0.88) 100%);
+  box-shadow: 0 10px 20px rgba(21, 86, 92, 0.14);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.mobile-panic-button img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.mental-check-modal {
+  width: min(900px, 95vw);
+  max-height: min(90dvh, 860px);
+  overflow: auto;
+  border-radius: 24px;
+  border: 1px solid rgba(162, 227, 220, 0.7);
+  background: linear-gradient(160deg, rgba(248, 255, 254, 0.93) 0%, rgba(233, 251, 248, 0.9) 52%, rgba(244, 253, 251, 0.9) 100%);
+  box-shadow: 0 24px 48px rgba(17, 72, 82, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px);
+}
+
+.mental-check-modal::-webkit-scrollbar {
+  width: 10px;
+}
+
+.mental-check-modal::-webkit-scrollbar-thumb {
+  background: rgba(103, 165, 171, 0.38);
+  border-radius: 999px;
+}
+
+.mental-check-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.mental-check-head h2 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2vw, 2rem);
+  color: #0f2f3a;
+}
+
+.mental-check-head p {
+  margin: 6px 0 0;
+  color: #315964;
+  font-size: 0.98rem;
+}
+
+.mental-check-head .ghost {
+  min-width: 104px;
+  border-radius: 999px;
+  border-color: rgba(43, 130, 138, 0.26);
+  background: rgba(255, 255, 255, 0.7);
+  color: #1f4f57;
+}
+
+.mental-mood-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mental-mood-chip {
+  border: 1px solid rgba(124, 181, 190, 0.4);
+  border-radius: 16px;
+  background: linear-gradient(170deg, rgba(255, 255, 255, 0.72) 0%, rgba(231, 248, 245, 0.74) 100%);
+  color: #1f3f49;
+  min-height: 92px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 10px 8px;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.mental-mood-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(43, 150, 155, 0.52);
+  box-shadow: 0 10px 18px rgba(23, 93, 98, 0.13);
+}
+
+.mental-mood-chip.active {
+  border-color: rgba(29, 169, 156, 0.92);
+  box-shadow: 0 10px 20px rgba(19, 128, 132, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.65);
+  background: linear-gradient(165deg, rgba(233, 255, 251, 0.92) 0%, rgba(216, 247, 242, 0.92) 100%);
+}
+
+.mental-mood-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 6px 12px rgba(22, 84, 90, 0.13);
+}
+
+.mental-mood-icon svg {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+
+.mental-mood-chip span:last-child {
+  font-weight: 700;
+  font-size: 0.98rem;
+}
+
+.mental-slider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mental-slider-row {
+  border-radius: 14px;
+  border: 1px solid rgba(128, 191, 196, 0.36);
+  background: rgba(255, 255, 255, 0.66);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: #1f4b56;
+  font-weight: 700;
+}
+
+.mental-range {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #39c3b1 0%, #8adbd0 100%);
+  outline: none;
+}
+
+.mental-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #159686;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(26, 96, 103, 0.26);
+}
+
+.mental-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #159686;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(26, 96, 103, 0.26);
+}
+
+.mental-slider-row strong {
+  font-size: 1.04rem;
+  color: #123742;
+  min-width: 36px;
+  text-align: right;
+}
+
+.mental-check-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.mental-save-button {
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: #111317;
+  color: #ffffff;
+  border: none;
+  font-weight: 700;
+}
+
+.mental-check-footer span {
+  font-weight: 700;
+  color: #244d58;
+}
+
+.mental-notice {
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(107, 196, 160, 0.45);
+  background: linear-gradient(180deg, rgba(234, 255, 246, 0.92) 0%, rgba(221, 250, 238, 0.92) 100%);
+  color: #17563d;
+  padding: 9px 12px;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.mental-detail-stack {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mental-card-kicker {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #337076;
+}
+
+.mental-stat-card,
+.mental-action-box,
+.mental-weekly-foot,
+.mental-insight-block,
+.mental-routine-card {
+  border: 1px solid rgba(130, 199, 203, 0.36);
+  border-radius: 16px;
+  padding: 12px 13px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.74) 0%, rgba(233, 249, 246, 0.72) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 8px 18px rgba(16, 72, 78, 0.08);
+}
+
+.mental-stat-line {
+  margin: 6px 0 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #173944;
+}
+
+.mental-stat-line strong {
+  color: #0f5f67;
+}
+
+.mental-action-box {
+  display: grid;
+  gap: 8px;
+}
+
+.mental-action-box strong {
+  font-size: 1.15rem;
+  color: #123843;
+}
+
+.mental-action-box p {
+  margin: 0;
+  color: #274f59;
+  line-height: 1.5;
+}
+
+.mental-action-link {
+  justify-self: start;
+  margin-top: 2px;
+}
+
+.mental-weekly-foot p {
+  margin: 0;
+  color: #244851;
+  line-height: 1.48;
+}
+
+.mental-weekly-foot p + p {
+  margin-top: 6px;
+}
+
+.mental-lower-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mental-insight-block ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+
+.mental-insight-block li {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(244, 253, 252, 0.86);
+  color: #294c57;
+  line-height: 1.4;
+}
+
+.mental-routine-block {
+  display: grid;
+  gap: 10px;
+}
+
+.mental-routine-card strong {
+  color: #183f49;
+}
+
+.mental-routine-card ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 5px;
+  color: #29505a;
+  line-height: 1.45;
+}
+
+@media (max-width: 768px) {
+  .top-actions .mental-heart-button,
+  .top-actions .panic-button {
+    display: none;
+  }
+
+  .brand {
+    margin-left: -20px;
+  }
+
+  .topbar {
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.3) 100%);
+    box-shadow: 0 10px 24px rgba(18, 33, 46, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.48);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+  }
+
+  .brand-logo {
+    height: 38px;
+    max-width: 150px;
+    transform: scale(2);
+    transform-origin: left center;
+  }
+
+  .mobile-mental-heart-button img {
+    width: 29px;
+    height: 29px;
+  }
+
+  .mobile-panic-button img {
+    width: 64px;
+    height: 64px;
+    transform: translateY(2px);
+  }
+
+  .brain-image {
+    max-height: 380px;
+    width: min(100%, 620px);
+    transform: translateY(12px);
+  }
+
+  .mental-check-modal {
+    width: min(96vw, 760px);
+  }
+
+  .mental-mood-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mental-lower-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .mental-check-modal {
+    width: min(97vw, 620px);
+    border-radius: 18px;
+    padding: 14px;
+  }
+
+  .mental-check-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mental-check-head .ghost {
+    width: 100%;
+  }
+
+  .mental-mood-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .mental-mood-chip {
+    min-height: 72px;
+    padding: 7px 4px;
+    gap: 5px;
+    border-radius: 12px;
+  }
+
+  .mental-mood-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .mental-mood-icon svg {
+    width: 23px;
+    height: 23px;
+  }
+
+  .mental-mood-chip span:last-child {
+    font-size: 0.72rem;
+    line-height: 1.05;
+    text-align: center;
+    word-break: break-word;
+  }
+
+  .mental-slider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mental-check-footer {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .mental-save-button {
+    width: 100%;
+  }
+
+  .mobile-mental-heart-button,
+  .mobile-panic-button {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+@media (max-width: 560px) {
+  .mental-check-modal {
+    width: min(98vw, 560px);
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 18px);
+    padding: 12px;
+  }
+
+  .mental-mood-chip {
+    min-height: 64px;
+    padding: 6px 3px;
+    border-radius: 10px;
+  }
+
+  .mental-mood-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .mental-mood-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .mental-mood-chip span:last-child {
+    font-size: 0.64rem;
+    line-height: 1.02;
+  }
+
+  .mobile-mental-heart-button img {
+    width: 30px;
+    height: 30px;
+  }
+
+  .mobile-panic-button img {
+    width: 66px;
+    height: 66px;
+    transform: translateY(3px);
+  }
+
+  .brain-image {
+    max-height: 352px;
+    width: min(100%, 560px);
+    transform: translateY(14px);
+  }
+}
