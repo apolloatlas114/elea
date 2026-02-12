@@ -50,11 +50,16 @@ const plannerStorageKeys = {
   eleaEvents: 'elea_planner_events',
   externalEvents: 'elea_planner_external_events',
   sync: 'elea_planner_sync',
+  oauth: 'elea_planner_oauth',
 } as const
+const plannerOauthPendingKey = 'elea_planner_oauth_pending'
 const plannerColorOptions = ['#18b6a4', '#0f998f', '#4f8df5', '#f7b55f', '#a370f5'] as const
 const plannerDefaultColor = plannerColorOptions[0]
 const plannerReminderOptions: PlannerReminder[] = ['none', '10m', '30m', '60m']
 const plannerRepeatOptions: PlannerRepeat[] = ['never', 'daily', 'weekly']
+const plannerGoogleScope = 'https://www.googleapis.com/auth/calendar.readonly'
+const plannerOutlookScope = 'https://graph.microsoft.com/Calendars.Read'
+const plannerOauthClockSkewMs = 60 * 1000
 const plannerRepeatLabels: Record<PlannerRepeat, string> = {
   never: 'Keine Wiederholung',
   daily: 'Taeglich',
@@ -68,6 +73,7 @@ const plannerReminderLabels: Record<PlannerReminder, string> = {
 }
 const plannerDefaultSyncSettings: PlannerSyncSettings = {
   googleConnected: false,
+  outlookConnected: false,
   uniConnected: false,
   uniIcalUrl: '',
   autoSyncMinutes: 15,
@@ -101,7 +107,8 @@ type EleaQuizQuestion = {
   chapterTag?: string
 }
 
-type PlannerEventSource = 'elea' | 'external-google' | 'external-uni'
+type PlannerEventSource = 'elea' | 'external-google' | 'external-outlook' | 'external-uni'
+type PlannerOAuthProvider = 'google' | 'outlook'
 type PlannerEventKind = 'session' | 'task' | 'external'
 type PlannerRepeat = 'never' | 'daily' | 'weekly'
 type PlannerReminder = 'none' | '10m' | '30m' | '60m'
@@ -129,11 +136,27 @@ type PlannerEvent = {
 
 type PlannerSyncSettings = {
   googleConnected: boolean
+  outlookConnected: boolean
   uniConnected: boolean
   uniIcalUrl: string
   autoSyncMinutes: 15 | 30
   bufferMinutes: 0 | 10 | 15
   lastSyncedAt: string
+}
+
+type PlannerOAuthSession = {
+  accessToken: string
+  refreshToken: string
+  expiresAt: string
+}
+
+type PlannerOAuthSessions = Partial<Record<PlannerOAuthProvider, PlannerOAuthSession>>
+
+type PlannerOAuthPending = {
+  provider: PlannerOAuthProvider
+  state: string
+  codeVerifier: string
+  redirectUri: string
 }
 
 type PlannerDraft = {
@@ -373,14 +396,8 @@ const mergeRanges = (ranges: Array<{ start: number; end: number }>) => {
   return merged
 }
 
-const startOfWeekIso = (isoDate: string) => {
-  const base = new Date(`${isoDate}T00:00:00`)
-  const day = base.getDay()
-  const mondayOffset = (day + 6) % 7
-  base.setDate(base.getDate() - mondayOffset)
-  base.setHours(0, 0, 0, 0)
-  return base
-}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
 
 const sortPlannerEvents = (rows: PlannerEvent[]) =>
   [...rows].sort((a, b) => {
@@ -390,6 +407,224 @@ const sortPlannerEvents = (rows: PlannerEvent[]) =>
     if (startDiff !== 0) return startDiff
     return a.title.localeCompare(b.title)
   })
+
+const encodeBase64Url = (value: ArrayBuffer | Uint8Array) => {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value)
+  let binary = ''
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte)
+  })
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+const createRandomToken = (length = 32) => {
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  return encodeBase64Url(bytes)
+}
+
+const createPkceChallenge = async (verifier: string) => {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+  return encodeBase64Url(digest)
+}
+
+const parseDateTimeToLocal = (value: string) => {
+  const parsed = new Date(value)
+  if (!Number.isNaN(parsed.getTime())) {
+    return {
+      date: toLocalIsoDate(parsed),
+      time: `${pad2(parsed.getHours())}:${pad2(parsed.getMinutes())}`,
+    }
+  }
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/)
+  if (!match) return null
+  return {
+    date: match[1],
+    time: `${match[2]}:${match[3]}`,
+  }
+}
+
+type ParsedPlannerDateTime =
+  | { allDay: true; date: string }
+  | { allDay: false; date: string; time: string }
+
+const parseGoogleEventDateTime = (value: unknown): ParsedPlannerDateTime | null => {
+  if (!isRecord(value)) return null
+  const date = typeof value.date === 'string' ? value.date : ''
+  if (date) return { allDay: true, date }
+  const dateTime = typeof value.dateTime === 'string' ? value.dateTime : ''
+  if (!dateTime) return null
+  const parsed = parseDateTimeToLocal(dateTime)
+  if (!parsed) return null
+  return {
+    allDay: false,
+    date: parsed.date,
+    time: parsed.time,
+  }
+}
+
+const parseOutlookEventDateTime = (value: unknown): ParsedPlannerDateTime | null => {
+  if (!isRecord(value)) return null
+  const dateTime = typeof value.dateTime === 'string' ? value.dateTime : ''
+  const timeZone = typeof value.timeZone === 'string' ? value.timeZone : ''
+  if (!dateTime) return null
+  const normalized = timeZone.toUpperCase() === 'UTC' && !dateTime.endsWith('Z') ? `${dateTime}Z` : dateTime
+  const parsed = parseDateTimeToLocal(normalized) ?? parseDateTimeToLocal(dateTime)
+  if (!parsed) return null
+  return {
+    allDay: false,
+    date: parsed.date,
+    time: parsed.time,
+  }
+}
+
+const normalizeExternalTimeWindow = (
+  startValue: ParsedPlannerDateTime | null,
+  endValue: ParsedPlannerDateTime | null
+): { allDay: boolean; date: string; start: string; end: string } | null => {
+  if (!startValue) return null
+  if (startValue.allDay) {
+    return {
+      allDay: true,
+      date: startValue.date,
+      start: '00:00',
+      end: '23:59',
+    }
+  }
+  const fallbackEnd = minutesToTime(Math.min(timeToMinutes(startValue.time) + 60, 23 * 60 + 59))
+  let endTime = endValue && !endValue.allDay ? endValue.time : fallbackEnd
+  if (timeToMinutes(endTime) <= timeToMinutes(startValue.time)) {
+    endTime = fallbackEnd
+  }
+  return {
+    allDay: false,
+    date: startValue.date,
+    start: startValue.time,
+    end: endTime,
+  }
+}
+
+const mapGoogleCalendarEvents = (items: unknown): PlannerEvent[] => {
+  if (!Array.isArray(items)) return []
+  const mapped: Array<PlannerEvent | null> = items
+    .map((item) => {
+      if (!isRecord(item)) return null
+      if (item.status === 'cancelled') return null
+      const startParsed = parseGoogleEventDateTime(item.start)
+      const endParsed = parseGoogleEventDateTime(item.end)
+      const normalized = normalizeExternalTimeWindow(startParsed, endParsed)
+      if (!normalized) return null
+      const id = typeof item.id === 'string' && item.id.trim().length > 0 ? item.id : createPlannerId('google')
+      const title = typeof item.summary === 'string' && item.summary.trim().length > 0 ? item.summary : 'Google Termin'
+      const detail = typeof item.description === 'string' ? item.description : ''
+      const location = typeof item.location === 'string' ? item.location : ''
+      return {
+        id: `google-${id}-${normalized.date}-${normalized.start}`,
+        source: 'external-google',
+        kind: 'external',
+        title,
+        detail,
+        date: normalized.date,
+        start: normalized.start,
+        end: normalized.end,
+        allDay: normalized.allDay,
+        repeat: 'never',
+        tags: ['Google'],
+        participants: [],
+        location,
+        color: '#c7ced6',
+        remind: 'none',
+        readOnly: true,
+        updatedAt: new Date().toISOString(),
+      } satisfies PlannerEvent
+    })
+  return sortPlannerEvents(mapped.filter((event): event is PlannerEvent => event !== null))
+}
+
+const mapOutlookCalendarEvents = (items: unknown): PlannerEvent[] => {
+  if (!Array.isArray(items)) return []
+  const mapped: Array<PlannerEvent | null> = items
+    .map((item) => {
+      if (!isRecord(item)) return null
+      if (item.isCancelled === true) return null
+      const startParsed = parseOutlookEventDateTime(item.start)
+      const endParsed = parseOutlookEventDateTime(item.end)
+      const normalized = normalizeExternalTimeWindow(startParsed, endParsed)
+      if (!normalized) return null
+      const locationValue = isRecord(item.location) ? item.location : null
+      const location = locationValue && typeof locationValue.displayName === 'string' ? locationValue.displayName : ''
+      const id = typeof item.id === 'string' && item.id.trim().length > 0 ? item.id : createPlannerId('outlook')
+      const title = typeof item.subject === 'string' && item.subject.trim().length > 0 ? item.subject : 'Outlook Termin'
+      const detail = typeof item.bodyPreview === 'string' ? item.bodyPreview : ''
+      const allDay = Boolean(item.isAllDay)
+      return {
+        id: `outlook-${id}-${normalized.date}-${normalized.start}`,
+        source: 'external-outlook',
+        kind: 'external',
+        title,
+        detail,
+        date: normalized.date,
+        start: allDay ? '00:00' : normalized.start,
+        end: allDay ? '23:59' : normalized.end,
+        allDay,
+        repeat: 'never',
+        tags: ['Outlook'],
+        participants: [],
+        location,
+        color: '#c7ced6',
+        remind: 'none',
+        readOnly: true,
+        updatedAt: new Date().toISOString(),
+      } satisfies PlannerEvent
+    })
+  return sortPlannerEvents(mapped.filter((event): event is PlannerEvent => event !== null))
+}
+
+const buildSyncRange = (referenceDate: string) => {
+  const base = new Date(`${referenceDate}T00:00:00`)
+  const start = new Date(base)
+  start.setDate(start.getDate() - 30)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(base)
+  end.setDate(end.getDate() + 180)
+  end.setHours(23, 59, 59, 999)
+  return { start, end }
+}
+
+const parsePlannerTokenResponse = (value: unknown, fallbackRefreshToken = ''): PlannerOAuthSession | null => {
+  if (!isRecord(value)) return null
+  const accessToken = typeof value.access_token === 'string' ? value.access_token : ''
+  const refreshToken = typeof value.refresh_token === 'string' ? value.refresh_token : fallbackRefreshToken
+  const expiresInRaw = value.expires_in
+  const expiresIn =
+    typeof expiresInRaw === 'number'
+      ? expiresInRaw
+      : typeof expiresInRaw === 'string'
+        ? Number(expiresInRaw)
+        : Number.NaN
+  if (!accessToken || !refreshToken || Number.isNaN(expiresIn)) return null
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt: new Date(Date.now() + Math.max(expiresIn - 60, 10) * 1000).toISOString(),
+  }
+}
+
+const parseApiErrorMessage = async (response: Response, fallback: string) => {
+  const payload = await response.json().catch(() => null)
+  if (isRecord(payload)) {
+    if (typeof payload.error_description === 'string' && payload.error_description.trim().length > 0) {
+      return payload.error_description
+    }
+    const errorField = payload.error
+    if (typeof errorField === 'string' && errorField.trim().length > 0) return errorField
+    if (isRecord(errorField) && typeof errorField.message === 'string' && errorField.message.trim().length > 0) {
+      return errorField.message
+    }
+    if (typeof payload.message === 'string' && payload.message.trim().length > 0) return payload.message
+  }
+  return fallback
+}
 
 const createPlannerDraft = (date: string, kind: 'session' | 'task', source?: PlannerEvent): PlannerDraft => {
   if (source) {
@@ -429,7 +664,7 @@ const createPlannerDraft = (date: string, kind: 'session' | 'task', source?: Pla
 }
 
 const isPlannerSource = (value: unknown): value is PlannerEventSource =>
-  value === 'elea' || value === 'external-google' || value === 'external-uni'
+  value === 'elea' || value === 'external-google' || value === 'external-outlook' || value === 'external-uni'
 
 const isPlannerKind = (value: unknown): value is PlannerEventKind =>
   value === 'session' || value === 'task' || value === 'external'
@@ -479,40 +714,6 @@ const normalizePlannerEvents = (value: unknown): PlannerEvent[] => {
       } satisfies PlannerEvent
     })
     .filter((event): event is PlannerEvent => Boolean(event))
-}
-
-const buildGoogleSeedEvents = (referenceDate: string): PlannerEvent[] => {
-  const monday = startOfWeekIso(referenceDate)
-  const templates = [
-    { dayOffset: 0, start: '09:15', end: '10:45', title: 'Vorlesung Methoden', detail: 'Externer Termin aus Google Kalender' },
-    { dayOffset: 1, start: '13:00', end: '14:00', title: 'Tutorium', detail: 'Externer Termin aus Google Kalender' },
-    { dayOffset: 2, start: '11:00', end: '12:30', title: 'Uni-Projektmeeting', detail: 'Externer Termin aus Google Kalender' },
-    { dayOffset: 4, start: '15:00', end: '16:30', title: 'Seminarblock', detail: 'Externer Termin aus Google Kalender' },
-  ]
-  return templates.map((entry) => {
-    const date = new Date(monday)
-    date.setDate(monday.getDate() + entry.dayOffset)
-    const iso = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
-    return {
-      id: `google-seed-${iso}-${entry.start}`,
-      source: 'external-google',
-      kind: 'external',
-      title: entry.title,
-      detail: entry.detail,
-      date: iso,
-      start: entry.start,
-      end: entry.end,
-      allDay: false,
-      repeat: 'never',
-      tags: ['Google'],
-      participants: [],
-      location: '',
-      color: '#c7ced6',
-      remind: 'none',
-      readOnly: true,
-      updatedAt: new Date().toISOString(),
-    } satisfies PlannerEvent
-  })
 }
 
 const decodeIcalText = (value: string) =>
@@ -657,6 +858,7 @@ const DashboardPage = () => {
     const parsed = parseJson(localStorage.getItem(plannerStorageKeys.sync), plannerDefaultSyncSettings)
     return {
       googleConnected: Boolean(parsed?.googleConnected),
+      outlookConnected: Boolean(parsed?.outlookConnected),
       uniConnected: Boolean(parsed?.uniConnected),
       uniIcalUrl: typeof parsed?.uniIcalUrl === 'string' ? parsed.uniIcalUrl : '',
       autoSyncMinutes: plannerDefaultSyncSettings.autoSyncMinutes,
@@ -670,7 +872,12 @@ const DashboardPage = () => {
   const [plannerEleaEvents, setPlannerEleaEvents] = useState<PlannerEvent[]>(() =>
     normalizePlannerEvents(parseJson(localStorage.getItem(plannerStorageKeys.eleaEvents), []))
   )
+  const [plannerOAuthSessions, setPlannerOAuthSessions] = useState<PlannerOAuthSessions>(() =>
+    parseJson(localStorage.getItem(plannerStorageKeys.oauth), {})
+  )
   const [plannerSyncExpanded, setPlannerSyncExpanded] = useState(false)
+  const [plannerProviderModalOpen, setPlannerProviderModalOpen] = useState(false)
+  const [plannerOauthBusy, setPlannerOauthBusy] = useState<PlannerOAuthProvider | null>(null)
   const [plannerEditorOpen, setPlannerEditorOpen] = useState(false)
   const [plannerEditorMode, setPlannerEditorMode] = useState<'create' | 'edit'>('create')
   const [plannerDraft, setPlannerDraft] = useState<PlannerDraft>(() => createPlannerDraft(todayIso(), 'session'))
@@ -811,6 +1018,10 @@ const DashboardPage = () => {
   useEffect(() => {
     localStorage.setItem(plannerStorageKeys.eleaEvents, JSON.stringify(plannerEleaEvents))
   }, [plannerEleaEvents])
+
+  useEffect(() => {
+    localStorage.setItem(plannerStorageKeys.oauth, JSON.stringify(plannerOAuthSessions))
+  }, [plannerOAuthSessions])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.phdBookings, JSON.stringify(bookingLog))
@@ -1273,49 +1484,407 @@ const DashboardPage = () => {
     })
   }
 
-  const toggleGoogleConnection = () => {
-    setPlannerSyncSettings((prev) => {
-      const nextConnected = !prev.googleConnected
-      if (!nextConnected) {
-        setPlannerExternalEvents((current) => current.filter((event) => event.source !== 'external-google'))
-      }
-      return {
-        ...prev,
-        googleConnected: nextConnected,
-        lastSyncedAt: nextConnected ? new Date().toISOString() : prev.lastSyncedAt,
-      }
+  const disconnectCalendarProvider = (provider: PlannerOAuthProvider) => {
+    const source: PlannerEventSource = provider === 'google' ? 'external-google' : 'external-outlook'
+    setPlannerExternalEvents((current) => current.filter((event) => event.source !== source))
+    setPlannerOAuthSessions((current) => {
+      const next = { ...current }
+      delete next[provider]
+      return next
     })
-    setPlannerNotice((prev) => (prev?.type === 'warn' ? null : { type: 'ok', text: 'Google Status aktualisiert.' }))
+    setPlannerSyncSettings((prev) => ({
+      ...prev,
+      googleConnected: provider === 'google' ? false : prev.googleConnected,
+      outlookConnected: provider === 'outlook' ? false : prev.outlookConnected,
+    }))
+    setPlannerNotice({
+      type: 'ok',
+      text: provider === 'google' ? 'Google Kalender getrennt.' : 'Outlook Kalender getrennt.',
+    })
   }
+
+  const fetchGoogleCalendarEvents = useCallback(async (accessToken: string) => {
+    const { start, end } = buildSyncRange(activeDate)
+    const collected: PlannerEvent[] = []
+    let nextPageToken = ''
+    let guard = 0
+
+    while (guard < 8) {
+      guard += 1
+      const params = new URLSearchParams({
+        singleEvents: 'true',
+        orderBy: 'startTime',
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+        maxResults: '2500',
+      })
+      if (nextPageToken) params.set('pageToken', nextPageToken)
+
+      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+      if (!response.ok) {
+        const message = await parseApiErrorMessage(response, 'Google Kalender konnte nicht geladen werden.')
+        throw new Error(message)
+      }
+      const payload = await response.json().catch(() => null)
+      if (isRecord(payload)) {
+        collected.push(...mapGoogleCalendarEvents(payload.items))
+        nextPageToken = typeof payload.nextPageToken === 'string' ? payload.nextPageToken : ''
+      } else {
+        nextPageToken = ''
+      }
+      if (!nextPageToken) break
+    }
+
+    return sortPlannerEvents(collected)
+  }, [activeDate])
+
+  const fetchOutlookCalendarEvents = useCallback(async (accessToken: string) => {
+    const { start, end } = buildSyncRange(activeDate)
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    const params = new URLSearchParams({
+      startDateTime: start.toISOString(),
+      endDateTime: end.toISOString(),
+      '$top': '1000',
+      '$select': 'id,subject,bodyPreview,location,start,end,isAllDay,isCancelled',
+    })
+    let nextUrl = `https://graph.microsoft.com/v1.0/me/calendarview?${params.toString()}`
+    const collected: PlannerEvent[] = []
+    let guard = 0
+
+    while (nextUrl && guard < 8) {
+      guard += 1
+      const response = await fetch(nextUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Prefer: `outlook.timezone="${timezone}"`,
+        },
+      })
+      if (!response.ok) {
+        const message = await parseApiErrorMessage(response, 'Outlook Kalender konnte nicht geladen werden.')
+        throw new Error(message)
+      }
+      const payload = await response.json().catch(() => null)
+      if (isRecord(payload)) {
+        collected.push(...mapOutlookCalendarEvents(payload.value))
+        nextUrl = typeof payload['@odata.nextLink'] === 'string' ? payload['@odata.nextLink'] : ''
+      } else {
+        nextUrl = ''
+      }
+    }
+
+    return sortPlannerEvents(collected)
+  }, [activeDate])
+
+  const exchangePlannerCode = useCallback(
+    async (provider: PlannerOAuthProvider, code: string, codeVerifier: string, redirectUri: string) => {
+      const clientId =
+        provider === 'google'
+          ? (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined)
+          : (import.meta.env.VITE_MICROSOFT_OAUTH_CLIENT_ID as string | undefined)
+      if (!clientId) {
+        throw new Error(
+          provider === 'google' ? 'VITE_GOOGLE_OAUTH_CLIENT_ID fehlt.' : 'VITE_MICROSOFT_OAUTH_CLIENT_ID fehlt.'
+        )
+      }
+      const tokenUrl =
+        provider === 'google'
+          ? 'https://oauth2.googleapis.com/token'
+          : 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
+      const body = new URLSearchParams({
+        client_id: clientId,
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        code_verifier: codeVerifier,
+      })
+      if (provider === 'outlook') {
+        body.set('scope', `${plannerOutlookScope} offline_access openid profile User.Read`)
+      }
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
+      })
+      if (!response.ok) {
+        const message = await parseApiErrorMessage(response, 'OAuth Anmeldung fehlgeschlagen.')
+        throw new Error(message)
+      }
+      const payload = await response.json().catch(() => null)
+      const parsed = parsePlannerTokenResponse(payload)
+      if (!parsed) throw new Error('Token-Antwort war unvollstaendig.')
+      return parsed
+    },
+    []
+  )
+
+  const refreshPlannerSession = useCallback(async (provider: PlannerOAuthProvider, session: PlannerOAuthSession) => {
+    const clientId =
+      provider === 'google'
+        ? (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined)
+        : (import.meta.env.VITE_MICROSOFT_OAUTH_CLIENT_ID as string | undefined)
+    if (!clientId) return null
+    const tokenUrl =
+      provider === 'google'
+        ? 'https://oauth2.googleapis.com/token'
+        : 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
+    const body = new URLSearchParams({
+      client_id: clientId,
+      grant_type: 'refresh_token',
+      refresh_token: session.refreshToken,
+    })
+    if (provider === 'outlook') {
+      body.set('scope', `${plannerOutlookScope} offline_access openid profile User.Read`)
+    }
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    })
+    if (!response.ok) {
+      const message = await parseApiErrorMessage(response, 'Token-Refresh fehlgeschlagen.')
+      throw new Error(message)
+    }
+    const payload = await response.json().catch(() => null)
+    return parsePlannerTokenResponse(payload, session.refreshToken)
+  }, [])
+
+  const ensurePlannerAccessToken = useCallback(
+    async (provider: PlannerOAuthProvider) => {
+      const session = plannerOAuthSessions[provider]
+      if (!session) return null
+      const expiresAt = new Date(session.expiresAt).getTime()
+      if (!Number.isNaN(expiresAt) && expiresAt - plannerOauthClockSkewMs > Date.now()) {
+        return session.accessToken
+      }
+      const refreshed = await refreshPlannerSession(provider, session)
+      if (!refreshed) throw new Error('Token konnte nicht erneuert werden.')
+      setPlannerOAuthSessions((current) => ({
+        ...current,
+        [provider]: refreshed,
+      }))
+      return refreshed.accessToken
+    },
+    [plannerOAuthSessions, refreshPlannerSession]
+  )
+
+  const startPlannerOAuth = useCallback(
+    async (provider: PlannerOAuthProvider) => {
+      const clientId =
+        provider === 'google'
+          ? (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined)
+          : (import.meta.env.VITE_MICROSOFT_OAUTH_CLIENT_ID as string | undefined)
+      if (!clientId) {
+        setPlannerNotice({
+          type: 'warn',
+          text:
+            provider === 'google'
+              ? 'Bitte VITE_GOOGLE_OAUTH_CLIENT_ID in .env.local setzen.'
+              : 'Bitte VITE_MICROSOFT_OAUTH_CLIENT_ID in .env.local setzen.',
+        })
+        return
+      }
+      setPlannerOauthBusy(provider)
+      try {
+        const state = createRandomToken(24)
+        const codeVerifier = createRandomToken(48)
+        const codeChallenge = await createPkceChallenge(codeVerifier)
+        const redirectUri = `${window.location.origin}${window.location.pathname}`
+        const pending: PlannerOAuthPending = {
+          provider,
+          state,
+          codeVerifier,
+          redirectUri,
+        }
+        sessionStorage.setItem(plannerOauthPendingKey, JSON.stringify(pending))
+
+        const authEndpoint =
+          provider === 'google'
+            ? 'https://accounts.google.com/o/oauth2/v2/auth'
+            : 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
+        const scope =
+          provider === 'google'
+            ? `openid email profile ${plannerGoogleScope}`
+            : `openid profile offline_access User.Read ${plannerOutlookScope}`
+        const params = new URLSearchParams({
+          client_id: clientId,
+          response_type: 'code',
+          redirect_uri: redirectUri,
+          scope,
+          state,
+          code_challenge: codeChallenge,
+          code_challenge_method: 'S256',
+        })
+        if (provider === 'google') {
+          params.set('access_type', 'offline')
+          params.set('prompt', 'consent')
+          params.set('include_granted_scopes', 'true')
+        } else {
+          params.set('response_mode', 'query')
+        }
+        window.location.assign(`${authEndpoint}?${params.toString()}`)
+      } catch (error) {
+        console.error('OAuth Start fehlgeschlagen', error)
+        setPlannerNotice({ type: 'warn', text: 'OAuth Flow konnte nicht gestartet werden.' })
+        setPlannerOauthBusy(null)
+      }
+    },
+    []
+  )
 
   const syncPlannerEvents = useCallback(
     async (origin: 'manual' | 'auto') => {
-      setPlannerExternalEvents((current) => {
-        let nextExternal = current.filter((event) => event.source !== 'external-google')
-        if (plannerSyncSettings.googleConnected) {
-          const googleSeed = buildGoogleSeedEvents(activeDate)
-          nextExternal = [...nextExternal, ...googleSeed]
-        }
-        return sortPlannerEvents(nextExternal)
-      })
+      const connectedProviders: PlannerOAuthProvider[] = []
+      if (plannerSyncSettings.googleConnected) connectedProviders.push('google')
+      if (plannerSyncSettings.outlookConnected) connectedProviders.push('outlook')
 
-      if (origin === 'manual') {
-        setPlannerNotice({
-          type: 'ok',
-          text:
-            plannerSyncSettings.googleConnected || plannerSyncSettings.uniConnected
-              ? 'Zeitplan synchronisiert.'
-              : 'Keine Quelle verbunden. Verbinde Google oder Uni iCal.',
-        })
+      const syncedExternal: PlannerEvent[] = []
+      let hadErrors = false
+
+      for (const provider of connectedProviders) {
+        try {
+          const accessToken = await ensurePlannerAccessToken(provider)
+          if (!accessToken) continue
+          const events =
+            provider === 'google'
+              ? await fetchGoogleCalendarEvents(accessToken)
+              : await fetchOutlookCalendarEvents(accessToken)
+          syncedExternal.push(...events)
+        } catch (error) {
+          hadErrors = true
+          console.error(`${provider} Sync fehlgeschlagen`, error)
+          setPlannerNotice({
+            type: 'warn',
+            text:
+              provider === 'google'
+                ? 'Google Sync fehlgeschlagen. Bitte neu verbinden.'
+                : 'Outlook Sync fehlgeschlagen. Bitte neu verbinden.',
+          })
+        }
       }
 
-      setPlannerSyncSettings((prev) => ({ ...prev, lastSyncedAt: new Date().toISOString() }))
+      setPlannerExternalEvents((current) => {
+        const retained = current.filter(
+          (event) => event.source !== 'external-google' && event.source !== 'external-outlook'
+        )
+        return sortPlannerEvents([...retained, ...syncedExternal])
+      })
+
+      if (connectedProviders.length > 0) {
+        setPlannerSyncSettings((prev) => ({ ...prev, lastSyncedAt: new Date().toISOString() }))
+      }
+
+      if (origin === 'manual') {
+        if (connectedProviders.length === 0 && !plannerSyncSettings.uniConnected) {
+          setPlannerNotice({
+            type: 'warn',
+            text: 'Keine Quelle verbunden. Verbinde Google, Outlook oder Uni iCal.',
+          })
+        } else if (!hadErrors) {
+          setPlannerNotice({
+            type: 'ok',
+            text: 'Kalender erfolgreich synchronisiert.',
+          })
+        }
+      }
     },
-    [activeDate, plannerSyncSettings.googleConnected, plannerSyncSettings.uniConnected]
+    [
+      ensurePlannerAccessToken,
+      fetchGoogleCalendarEvents,
+      fetchOutlookCalendarEvents,
+      plannerSyncSettings.googleConnected,
+      plannerSyncSettings.outlookConnected,
+      plannerSyncSettings.uniConnected,
+    ]
   )
 
   useEffect(() => {
-    if (!plannerSyncSettings.googleConnected && !plannerSyncSettings.uniConnected) return
+    const url = new URL(window.location.href)
+    const code = url.searchParams.get('code')
+    const state = url.searchParams.get('state')
+    const oauthError = url.searchParams.get('error')
+    if (!code && !oauthError) return
+
+    const cleanupUrl = () => {
+      url.searchParams.delete('code')
+      url.searchParams.delete('state')
+      url.searchParams.delete('error')
+      url.searchParams.delete('error_description')
+      url.searchParams.delete('session_state')
+      const nextSearch = url.searchParams.toString()
+      const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ''}${url.hash}`
+      window.history.replaceState({}, document.title, nextUrl)
+    }
+
+    const pending = parseJson<PlannerOAuthPending | null>(sessionStorage.getItem(plannerOauthPendingKey), null)
+    sessionStorage.removeItem(plannerOauthPendingKey)
+
+    if (!pending || !state || pending.state !== state) {
+      cleanupUrl()
+      setPlannerNotice({ type: 'warn', text: 'OAuth Status ungueltig. Bitte erneut verbinden.' })
+      return
+    }
+
+    if (oauthError) {
+      cleanupUrl()
+      const description = url.searchParams.get('error_description')
+      setPlannerNotice({
+        type: 'warn',
+        text: description ? `Verbindung abgebrochen: ${description}` : 'Verbindung abgebrochen.',
+      })
+      return
+    }
+
+    if (!code) {
+      cleanupUrl()
+      setPlannerNotice({ type: 'warn', text: 'Kein OAuth Code erhalten.' })
+      return
+    }
+
+    let cancelled = false
+    setPlannerOauthBusy(pending.provider)
+    void (async () => {
+      try {
+        const session = await exchangePlannerCode(pending.provider, code, pending.codeVerifier, pending.redirectUri)
+        if (cancelled) return
+        setPlannerOAuthSessions((current) => ({
+          ...current,
+          [pending.provider]: session,
+        }))
+        setPlannerSyncSettings((prev) => ({
+          ...prev,
+          googleConnected: pending.provider === 'google' ? true : prev.googleConnected,
+          outlookConnected: pending.provider === 'outlook' ? true : prev.outlookConnected,
+          lastSyncedAt: new Date().toISOString(),
+        }))
+        setPlannerProviderModalOpen(false)
+        setPlannerNotice({
+          type: 'ok',
+          text: pending.provider === 'google' ? 'Google erfolgreich verbunden.' : 'Outlook erfolgreich verbunden.',
+        })
+      } catch (error) {
+        console.error('OAuth Abschluss fehlgeschlagen', error)
+        setPlannerNotice({ type: 'warn', text: 'Kalender-Verbindung fehlgeschlagen.' })
+      } finally {
+        if (!cancelled) setPlannerOauthBusy(null)
+        cleanupUrl()
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [exchangePlannerCode])
+
+  useEffect(() => {
+    if (!plannerSyncSettings.googleConnected && !plannerSyncSettings.outlookConnected && !plannerSyncSettings.uniConnected) return
     const timer = window.setInterval(() => {
       void syncPlannerEvents('auto')
     }, plannerSyncSettings.autoSyncMinutes * 60 * 1000)
@@ -1323,14 +1892,15 @@ const DashboardPage = () => {
   }, [
     plannerSyncSettings.autoSyncMinutes,
     plannerSyncSettings.googleConnected,
+    plannerSyncSettings.outlookConnected,
     plannerSyncSettings.uniConnected,
     syncPlannerEvents,
   ])
 
   useEffect(() => {
-    if (!plannerSyncSettings.googleConnected) return
+    if (!plannerSyncSettings.googleConnected && !plannerSyncSettings.outlookConnected) return
     void syncPlannerEvents('auto')
-  }, [plannerSyncSettings.googleConnected, activeDate, syncPlannerEvents])
+  }, [plannerSyncSettings.googleConnected, plannerSyncSettings.outlookConnected, activeDate, syncPlannerEvents])
 
 
   const insertSupportTag = (tag: string) => {
@@ -1722,16 +2292,31 @@ const DashboardPage = () => {
                 <>
               <div className="planner-sync-row">
                 <button
-                  className={`planner-connect-btn ${plannerSyncSettings.googleConnected ? 'connected' : ''}`}
+                  className={`planner-connect-btn ${plannerSyncSettings.googleConnected || plannerSyncSettings.outlookConnected ? 'connected' : ''}`}
                   type="button"
-                  onClick={toggleGoogleConnection}
+                  onClick={() => setPlannerProviderModalOpen(true)}
+                  disabled={plannerOauthBusy !== null}
                 >
-                  {plannerSyncSettings.googleConnected ? 'Google verbunden' : 'Mit Google verbinden'}
+                  Jetzt verbinden
                 </button>
                 <button className="planner-refresh-btn" type="button" onClick={() => void syncPlannerEvents('manual')}>
                   Refresh
                 </button>
               </div>
+              {(plannerSyncSettings.googleConnected || plannerSyncSettings.outlookConnected) && (
+                <div className="planner-sync-row planner-provider-row">
+                  {plannerSyncSettings.googleConnected && (
+                    <button className="ghost planner-mini-btn" type="button" onClick={() => disconnectCalendarProvider('google')}>
+                      Google trennen
+                    </button>
+                  )}
+                  {plannerSyncSettings.outlookConnected && (
+                    <button className="ghost planner-mini-btn" type="button" onClick={() => disconnectCalendarProvider('outlook')}>
+                      Outlook trennen
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="planner-sync-row planner-sync-row-link">
                 <input
                   className="planner-ical-input"
@@ -1754,7 +2339,7 @@ const DashboardPage = () => {
                 </button>
               </div>
               <input ref={uniIcalInputRef} type="file" accept=".ics,text/calendar" className="planner-hidden-input" onChange={uploadUniIcal} />
-              <p className="planner-sync-hint">Externe Termine bleiben read-only. elea plant automatisch drumherum.</p>
+              <p className="planner-sync-hint">Externe Termine bleiben read-only. Google, Outlook und Uni iCal werden ohne Mock-Daten synchronisiert.</p>
               <p className="planner-sync-meta">{plannerSyncLabel}</p>
                 </>
               )}
@@ -2050,6 +2635,40 @@ const DashboardPage = () => {
 
         </aside>
       </main>
+
+      {plannerProviderModalOpen && (
+        <div className="modal-backdrop" onClick={() => setPlannerProviderModalOpen(false)}>
+          <div className="modal planner-provider-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="planner-modal-head">
+              <div>
+                <h2>Kalenderanbieter waehlen</h2>
+                <p>Verbinde deinen echten Kalender. Es werden keine Demo-Termine erzeugt.</p>
+              </div>
+              <button className="ghost" type="button" onClick={() => setPlannerProviderModalOpen(false)}>
+                Schliessen
+              </button>
+            </div>
+            <div className="planner-provider-actions">
+              <button
+                className="primary planner-add-btn"
+                type="button"
+                onClick={() => void startPlannerOAuth('google')}
+                disabled={plannerOauthBusy !== null}
+              >
+                {plannerOauthBusy === 'google' ? 'Google verbindet...' : 'Google verbinden'}
+              </button>
+              <button
+                className="primary planner-add-btn planner-provider-alt"
+                type="button"
+                onClick={() => void startPlannerOAuth('outlook')}
+                disabled={plannerOauthBusy !== null}
+              >
+                {plannerOauthBusy === 'outlook' ? 'Outlook verbindet...' : 'Outlook verbinden'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {monthPlannerOpen && (
         <div className="modal-backdrop" onClick={() => setMonthPlannerOpen(false)}>

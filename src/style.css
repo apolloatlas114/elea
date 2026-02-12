@@ -1062,6 +1062,10 @@ select {
   gap: 6px;
 }
 
+.planner-provider-row {
+  flex-wrap: wrap;
+}
+
 .planner-sync-row-link {
   align-items: stretch;
 }
@@ -1255,6 +1259,27 @@ select {
 .planner-add-btn {
   font-size: 12px;
   font-weight: 600;
+}
+
+.planner-provider-modal {
+  width: min(520px, 94vw);
+  border: 1px solid rgba(159, 220, 212, 0.9);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(226, 247, 244, 0.78));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: grid;
+  gap: 12px;
+}
+
+.planner-provider-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.planner-provider-alt {
+  background: #e7f8f5;
+  color: #115159;
 }
 
 .planner-day-modal {
@@ -11840,6 +11865,13 @@ select {
   .planner-day-modal {
     width: min(96vw, 560px);
     padding: 16px;
+  }
+  .planner-provider-modal {
+    width: min(96vw, 560px);
+    padding: 16px;
+  }
+  .planner-provider-actions {
+    grid-template-columns: 1fr;
   }
   .planner-month-modal {
     width: min(96vw, 560px);
