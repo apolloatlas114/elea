@@ -71,7 +71,6 @@ const CenterNode = (_props: NodeProps<CenterNodeType>) => {
       />
       <Handle id="left" className="elea-orbit-handle elea-orbit-handle-center" type="target" position={Position.Left} />
       <img src="/elealogoneu.png" alt="ELEA Logo" />
-      <span>ELEA</span>
     </div>
   )
 }
@@ -180,8 +179,8 @@ export const EleaFeatureOrbit = () => {
   return (
     <section className="elea-orbit-section" aria-label="Elea Feature Orbit">
       <div className="elea-orbit-head">
-        <h4>Elea Feature Universe</h4>
-        <p>Klicke auf ein Feature, um die Kurz-Erklaerung zu sehen.</p>
+        <h4>elea Feature Orbit</h4>
+        <p>Klicke auf ein Feature, um die Kurz-Erklärung zu sehen.</p>
       </div>
 
       <div className="elea-orbit-flow">

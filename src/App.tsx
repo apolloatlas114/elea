@@ -58,6 +58,52 @@ const moodScoreMap: Record<MentalMood, number> = {
   motivated: 78,
 }
 
+const faqOnboardingVideoEmbedUrl =
+  (import.meta.env.VITE_ELEA_ONBOARDING_VIDEO_EMBED as string | undefined) || 'https://www.youtube.com/embed/Q33KBiDriJY'
+
+const platformFaqItems: Array<{ question: string; answer: string }> = [
+  {
+    question: 'Wie starte ich in elea am schnellsten richtig?',
+    answer:
+      'Setze zuerst deine Deadline, mache den Status Check und plane dann deine erste Woche im Zeitplan. So priorisiert elea deine Aufgaben direkt sinnvoll statt nur To-dos zu sammeln.',
+  },
+  {
+    question: 'Wofür nutze ich den elea Feature Orbit konkret?',
+    answer:
+      'Der Orbit ist deine Funktionslandkarte: Klicke ein Feature an und du bekommst sofort die Kurz-Erklärung. Damit findest du ohne Suchen direkt das richtige Tool für dein aktuelles Problem.',
+  },
+  {
+    question: 'Wie hilft mir der Zeitplan im Alltag?',
+    answer:
+      'Der Zeitplan verbindet deine Lernblöcke mit Deadline-Logik und Fokuszeiten. Du siehst auf einen Blick, was heute kritisch ist, was warten kann und wo freie Slots für wichtige Aufgaben liegen.',
+  },
+  {
+    question: 'Was bringt mir der Panic Button in Stressphasen?',
+    answer:
+      'Der Panic Button reduziert akuten Druck in Sekunden: kurze Check-Fragen, klare Priorität und eine direkt ausführbare Mikro-Aktion. Ziel ist Handlungsfähigkeit statt Überforderung.',
+  },
+  {
+    question: 'Wann sollte ich Frag elea und das Lernlabor einsetzen?',
+    answer:
+      'Frag elea nutzt du für schnelle Erklärungen und nächste Schritte. Das Lernlabor nutzt du anschließend zum strukturierten Üben mit Quiz-Leveln, Timer und Feedback auf Basis deiner Inhalte.',
+  },
+  {
+    question: 'Wie arbeite ich mit Upload, Notehub und Smartsearch zusammen?',
+    answer:
+      'Lade Dokumente hoch, verknüpfe Notizen und Aufgaben in Notehub und finde alles über Smartsearch wieder. So bleibt dein gesamter Workflow zentral, statt über mehrere Tools verteilt zu sein.',
+  },
+  {
+    question: 'Woran erkenne ich, ob ich auf Kurs bin?',
+    answer:
+      'Nutze Fortschrittsanzeige, Risiko Checker und Mental-Health-Status zusammen. Diese drei Werte zeigen dir, ob dein Tempo, dein Belastungsniveau und dein Abgabe-Risiko im grünen Bereich liegen.',
+  },
+  {
+    question: 'Wie bekomme ich Hilfe, wenn ich feststecke?',
+    answer:
+      'Nutze Chat Support für konkrete Fragen, Interactive Help Sessions für häufige Themen und 1:1 Betreuung mit Anna für kritische Phasen. So bekommst du je nach Situation die passende Tiefe.',
+  },
+]
+
 const renderMoodGlyph = (mood: MentalMood) => {
   if (mood === 'focused') {
     return (
@@ -834,13 +880,58 @@ const AppLayout = () => {
         <div className="modal-backdrop" onClick={() => setFaqOrbitOpen(false)}>
           <div className="modal faq-orbit-modal" onClick={(event) => event.stopPropagation()}>
             <div className="faq-orbit-modal-head">
-              <h2>Elea Feature Orbit</h2>
+              <h2>FAQ</h2>
               <button className="ghost" type="button" onClick={() => setFaqOrbitOpen(false)}>
                 Schliessen
               </button>
             </div>
-            <p className="faq-orbit-modal-subline">Klicke auf ein Feature, um die Kurz-Erklaerung zu sehen.</p>
-            <EleaFeatureOrbit />
+            <p className="faq-orbit-modal-subline">
+              Hier findest du die wichtigsten Funktionen und kurze Erklärungen dazu, wie sie dich im Studium konkret
+              unterstützen.
+            </p>
+            <div className="faq-orbit-modal-top-grid">
+              <div className="faq-orbit-panel">
+                <EleaFeatureOrbit />
+              </div>
+
+              <aside className="faq-onboarding-card" aria-label="elea Onboarding">
+                <div className="faq-onboarding-head">
+                  <h3>elea Onboarding</h3>
+                  <p>Kurze Einführung in die Plattform, damit du direkt strukturiert startest.</p>
+                </div>
+                <div className="player-embed faq-onboarding-media">
+                  <iframe
+                    src={faqOnboardingVideoEmbedUrl}
+                    title="elea Onboarding Video"
+                    loading="lazy"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    allowFullScreen
+                  />
+                </div>
+                <ul className="faq-onboarding-points">
+                  <li>Setup: Profil, Deadline, Status Check</li>
+                  <li>Flow: Orbit, Zeitplan, Fokus-Umsetzung</li>
+                  <li>Sicherheit: Risiko erkennen, früh gegensteuern</li>
+                </ul>
+              </aside>
+            </div>
+
+            <section className="faq-platform-section" aria-label="Plattform FAQ">
+              <div className="faq-platform-head">
+                <h3>Plattform FAQ</h3>
+                <p>Alles Wichtige zur Nutzung von elea, klar und schnell auffindbar.</p>
+              </div>
+
+              <div className="faq-platform-list">
+                {platformFaqItems.map((item, index) => (
+                  <details key={item.question} className="faq-platform-item" open={index === 0}>
+                    <summary>{item.question}</summary>
+                    <p>{item.answer}</p>
+                  </details>
+                ))}
+              </div>
+            </section>
           </div>
         </div>
       )}

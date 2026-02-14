@@ -364,11 +364,13 @@ select {
 .floating-faq {
   width: 34px;
   height: 34px;
-  border-radius: 50%;
-  background: linear-gradient(160deg, #ffffff 0%, #f2f8fc 100%);
-  border: 1px solid #d7e4ea;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.3) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.72);
   color: #1f313f;
-  box-shadow: 0 10px 20px rgba(16, 31, 54, 0.16);
+  box-shadow: 0 10px 24px rgba(18, 33, 46, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
 }
 
 .floating-faq .faq-question {
@@ -3123,10 +3125,12 @@ select {
 }
 
 .faq-orbit-modal {
-  width: min(980px, 96vw);
+  width: min(1240px, 96vw);
   max-height: min(92dvh, 940px);
-  padding: 14px;
-  border: 1px solid #d4ece9;
+  padding: 16px;
+  border: 1px solid rgba(192, 223, 228, 0.72);
+  background: linear-gradient(170deg, rgba(246, 253, 252, 0.96) 0%, rgba(236, 248, 250, 0.96) 100%);
+  box-shadow: 0 24px 46px rgba(15, 53, 66, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.74);
   overflow: auto;
 }
 
@@ -3142,18 +3146,152 @@ select {
 }
 
 .faq-orbit-modal-subline {
-  margin: 8px 0 10px;
+  margin: 8px 0 12px;
   color: #5f6b71;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.faq-orbit-modal-top-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.faq-orbit-panel,
+.faq-onboarding-card,
+.faq-platform-section {
+  border-radius: 16px;
+  border: 1px solid rgba(166, 207, 212, 0.48);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.74) 0%, rgba(238, 251, 248, 0.74) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 10px 22px rgba(18, 56, 67, 0.1);
+}
+
+.faq-orbit-panel {
+  padding: 10px;
+}
+
+.faq-orbit-panel .elea-orbit-section {
+  margin: 0;
+  border: 1px solid rgba(173, 214, 208, 0.5);
+  background: linear-gradient(160deg, rgba(248, 255, 253, 0.94) 0%, rgba(235, 249, 246, 0.94) 100%);
+}
+
+.faq-orbit-panel .elea-orbit-flow {
+  height: min(60dvh, 540px);
+}
+
+.faq-onboarding-card {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.faq-onboarding-head {
+  display: grid;
+  gap: 3px;
+}
+
+.faq-onboarding-head h3 {
+  margin: 0;
+  color: #123945;
+  font-size: 18px;
+}
+
+.faq-onboarding-head p {
+  margin: 0;
+  color: #4f6973;
   font-size: 13px;
   line-height: 1.4;
 }
 
-.faq-orbit-modal .elea-orbit-section {
-  margin: 0;
+.faq-onboarding-media {
+  border-radius: 14px;
+  border: 1px solid rgba(175, 215, 220, 0.55);
+  overflow: hidden;
+  background: #0f1113;
 }
 
-.faq-orbit-modal .elea-orbit-flow {
-  height: min(60dvh, 540px);
+.faq-onboarding-points {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: #2e4f59;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.faq-platform-section {
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.faq-platform-head {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+
+.faq-platform-head h3 {
+  margin: 0;
+  color: #113945;
+  font-size: 20px;
+}
+
+.faq-platform-head p {
+  margin: 0;
+  color: #516e79;
+  font-size: 13px;
+}
+
+.faq-platform-list {
+  display: grid;
+  gap: 8px;
+}
+
+.faq-platform-item {
+  border-radius: 12px;
+  border: 1px solid rgba(175, 215, 218, 0.56);
+  background: rgba(253, 255, 255, 0.74);
+  overflow: hidden;
+}
+
+.faq-platform-item summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  color: #183f4b;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.faq-platform-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-platform-item summary::after {
+  content: '+';
+  font-size: 18px;
+  line-height: 1;
+  color: #24606c;
+}
+
+.faq-platform-item[open] summary::after {
+  content: '−';
+}
+
+.faq-platform-item p {
+  margin: 0;
+  padding: 0 14px 12px;
+  color: #355a65;
+  font-size: 13px;
+  line-height: 1.52;
 }
 
 .elea-ask-head {
@@ -4033,8 +4171,21 @@ select {
     padding: 10px;
   }
 
-  .faq-orbit-modal .elea-orbit-flow {
+  .faq-orbit-modal-top-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .faq-orbit-panel .elea-orbit-flow {
     height: min(54dvh, 420px);
+  }
+
+  .faq-onboarding-card {
+    padding: 10px;
+  }
+
+  .faq-platform-section {
+    margin-top: 10px;
+    padding: 10px;
   }
 }
 
@@ -4051,8 +4202,18 @@ select {
     font-size: 12px;
   }
 
-  .faq-orbit-modal .elea-orbit-flow {
+  .faq-orbit-panel .elea-orbit-flow {
     height: min(50dvh, 360px);
+  }
+
+  .faq-platform-item summary {
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+
+  .faq-platform-item p {
+    padding: 0 12px 10px;
+    font-size: 12px;
   }
 }
 
@@ -10370,7 +10531,7 @@ select {
 
 .auth-v0-field-checkbox {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   font-size: 14px;
   line-height: 1.25;
@@ -10379,10 +10540,16 @@ select {
 }
 
 .auth-v0-field-checkbox input {
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   accent-color: #1f7a73;
   flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  box-shadow: none;
+  border-radius: 3px;
 }
 
 .auth-v0-field-checkbox span {
@@ -10398,7 +10565,7 @@ select {
   color: #111827;
 }
 
-.auth-v0-field input {
+.auth-v0-field input:not([type='checkbox']) {
   width: 100%;
   min-height: 48px;
   border-radius: 12px;
@@ -10410,7 +10577,7 @@ select {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.auth-v0-field input::placeholder {
+.auth-v0-field input:not([type='checkbox'])::placeholder {
   color: #9aa3af;
 }
 
@@ -10421,7 +10588,7 @@ select {
   color: #7b8796;
 }
 
-.auth-v0-field input:focus {
+.auth-v0-field input:not([type='checkbox']):focus {
   outline: none;
   border-color: #2cb8b2;
   box-shadow: 0 0 0 3px rgba(44, 184, 178, 0.16);
@@ -10647,12 +10814,13 @@ select {
   .auth-v0-field-checkbox {
     font-size: 12.5px;
     gap: 7px;
+    align-items: center;
   }
 
   .auth-v0-field-checkbox input {
-    width: 16px;
-    height: 16px;
-    margin-top: 1px;
+    width: 14px;
+    height: 14px;
+    margin-top: 0;
   }
 
   .auth-v0-side h2 {
