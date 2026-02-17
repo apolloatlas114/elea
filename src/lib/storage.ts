@@ -218,6 +218,7 @@ export const STORAGE_KEYS = {
   thesisChecklist: 'elea_thesis_checklist',
   thesisNotes: 'elea_thesis_notes',
   studyMaterials: 'elea_study_materials',
+  productivityMetrics: 'elea_productivity_metrics',
   lastUserId: 'elea_last_user_id',
   rememberedEmail: 'elea_remembered_email',
 }
@@ -244,6 +245,7 @@ export const USER_LOCAL_KEYS = [
   STORAGE_KEYS.thesisChecklist,
   STORAGE_KEYS.thesisNotes,
   STORAGE_KEYS.studyMaterials,
+  STORAGE_KEYS.productivityMetrics,
 ]
 
 export const clearUserLocalState = () => {

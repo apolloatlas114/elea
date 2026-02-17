@@ -5,7 +5,6 @@ import {
   CircleAlert,
   FileText,
   Filter,
-  FolderOpen,
   GraduationCap,
   LayoutDashboard,
   ListChecks,
@@ -40,6 +39,7 @@ import {
 } from '../lib/supabaseData'
 import { groqChatJsonWithFallback } from '../lib/groq'
 import { extractPdfText } from '../lib/pdf'
+import { recordQuizAnswerSpeed, recordQuizAttempt, recordVoiceInputAnalysis } from '../lib/productivity'
 import {
   STORAGE_KEYS,
   mergeStudyMaterials,
@@ -51,6 +51,20 @@ import {
   parseJson,
   todayIso,
 } from '../lib/storage'
+
+const UploadTrayIcon = ({ size = 15 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 4v9" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="m8.6 7.6 3.4-3.4 3.4 3.4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M4 14.6V17a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-2.4"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
 import type {
   AssessmentResult,
   Plan,
@@ -170,6 +184,11 @@ type ChapterPerformance = {
   percent: number
 }
 
+type RubricScore = {
+  label: string
+  value: number | null
+}
+
 const toChapterTag = (value: string | undefined, fallback: string) => {
   const clean = (value ?? '').trim()
   return clean.length > 0 ? clean : fallback
@@ -263,6 +282,9 @@ const MyThesisPage = () => {
   const studyUploadRef = useRef<HTMLInputElement | null>(null)
   const noteCaptureRef = useRef<MicrophoneCaptureSession | null>(null)
   const recordingTimeoutRef = useRef<number | null>(null)
+  const recordingStartedAtRef = useRef<number | null>(null)
+  const studyQuizQuestionStartRef = useRef<Record<number, number>>({})
+  const studyQuizAnsweredRef = useRef<Record<number, boolean>>({})
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [studyError, setStudyError] = useState('')
@@ -423,6 +445,8 @@ const MyThesisPage = () => {
   const completedTodos = todos.filter((todo) => Boolean(todo.done)).length
   const openTodos = Math.max(todos.length - completedTodos, 0)
   const qualityLocked = plan === 'free'
+  const hasQualityDocuments = documents.length > 0
+  const qualityReady = !qualityLocked && hasQualityDocuments
   const eleaReviewedDocs = qualityLocked ? 0 : documents.length
   const eleaPendingDocs = Math.max(documents.length - eleaReviewedDocs, 0)
 
@@ -523,8 +547,21 @@ const MyThesisPage = () => {
   }, [profile?.status, checklistRate, documents.length, stress.value, plan])
 
   const eleaScoreValue = (eleaScorePercent / 10).toFixed(1)
+  const qualityScoreLabel = qualityReady ? `${eleaScoreValue}/10` : '--'
+  const qualityScoreBarWidth = qualityReady ? eleaScorePercent : 0
 
-  const rubricScores = useMemo(() => {
+  const rubricScores = useMemo<RubricScore[]>(() => {
+    if (!qualityReady) {
+      return [
+        { label: 'Struktur', value: null },
+        { label: 'Inhalt', value: null },
+        { label: 'Methodik', value: null },
+        { label: 'Zitation', value: null },
+        { label: 'Sprache', value: null },
+        { label: 'Originalität', value: null },
+      ]
+    }
+
     const base = eleaScorePercent / 10
     return [
       { label: 'Struktur', value: clamp(Number((base + 0.2).toFixed(1)), 1, 10) },
@@ -534,7 +571,7 @@ const MyThesisPage = () => {
       { label: 'Sprache', value: clamp(Number((base + 0.3).toFixed(1)), 1, 10) },
       { label: 'Originalität', value: clamp(Number((base - 0.2).toFixed(1)), 1, 10) },
     ]
-  }, [eleaScorePercent])
+  }, [eleaScorePercent, qualityReady])
 
   const sparklineValues = useMemo(() => {
     const fallbackValues = [
@@ -801,6 +838,8 @@ const MyThesisPage = () => {
     setStudyQuizAttemptId('')
     setStudyQuizStartedAt('')
     setStudyQuizTotalSeconds(0)
+    studyQuizQuestionStartRef.current = {}
+    studyQuizAnsweredRef.current = {}
   }
 
   const startStudyQuiz = () => {
@@ -815,6 +854,14 @@ const MyThesisPage = () => {
     setStudyQuizTotalSeconds(totalSeconds)
     setStudyQuizStarted(true)
     setStudyQuizSecondsLeft(totalSeconds)
+    const questionCount = activeStudyMaterial?.quiz?.[studyQuizLevel]?.length ?? 0
+    const now = Date.now()
+    const timings: Record<number, number> = {}
+    for (let index = 0; index < questionCount; index += 1) {
+      timings[index] = now
+    }
+    studyQuizQuestionStartRef.current = timings
+    studyQuizAnsweredRef.current = {}
   }
 
   useEffect(() => {
@@ -875,6 +922,8 @@ const MyThesisPage = () => {
       secondsSpent,
       questionResults: questionResults.slice(0, answeredCount > 0 ? questionResults.length : 0),
     }
+
+    recordQuizAttempt({ total, answered: answeredCount })
 
     setStudyMaterials((prev) =>
       prev.map((item) => {
@@ -1319,6 +1368,10 @@ Regeln:
     try {
       const audio = await capture.stop()
       const transcript = await transcribeNoteAudio(audio.blob, audio.extension)
+      const recordingStartedAt = recordingStartedAtRef.current
+      const durationSeconds =
+        typeof recordingStartedAt === 'number' ? Math.max(0.5, (Date.now() - recordingStartedAt) / 1000) : 0
+      recordVoiceInputAnalysis({ transcript, durationSeconds })
       setNoteDraft((prev) => ({
         ...prev,
         content: prev.content ? `${prev.content}\n${transcript}` : transcript,
@@ -1328,6 +1381,7 @@ Regeln:
       const message = error instanceof Error ? error.message : 'Transkription fehlgeschlagen.'
       setNoteError(`${message} Bitte erneut versuchen oder Text direkt eingeben.`)
     } finally {
+      recordingStartedAtRef.current = null
       setIsTranscribing(false)
     }
   }
@@ -1344,6 +1398,7 @@ Regeln:
       setNoteError('Mikrofon wird gestartet...')
       const capture = await startMicrophoneCapture()
       noteCaptureRef.current = capture
+      recordingStartedAtRef.current = Date.now()
       setIsRecording(true)
       setNoteError('Aufnahme laeuft... tippe erneut auf Sprach-Input zum Stoppen.')
       recordingTimeoutRef.current = window.setTimeout(() => {
@@ -1450,26 +1505,26 @@ Regeln:
 
   const viewItems: Array<{ id: ThesisView; label: string; icon: JSX.Element; meta: string }> = [
     { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={15} />, meta: `${progressValue}%` },
-    { id: 'documents', label: 'Dokumente', icon: <FolderOpen size={15} />, meta: `${documents.length}` },
+    { id: 'documents', label: 'Dokumente', icon: <UploadTrayIcon size={15} />, meta: `${documents.length}` },
     { id: 'tasks', label: 'Aufgaben', icon: <ListTodo size={15} />, meta: `${openTodos}/${todos.length}` },
     {
       id: 'quality',
       label: 'Elea Score',
       icon: <ShieldCheck size={15} />,
-      meta: qualityLocked ? 'Locked' : `${eleaScoreValue}/10`,
+      meta: qualityLocked ? 'Locked' : qualityScoreLabel,
     },
     { id: 'study', label: 'Lernlabor', icon: <GraduationCap size={15} />, meta: `${studyReadyCount}/${studyTotalCount}` },
-    { id: 'workbench', label: 'Notizen', icon: <NotepadText size={15} />, meta: `${notesTotalCount}` },
+    { id: 'workbench', label: 'Notehub', icon: <NotepadText size={15} />, meta: `${notesTotalCount}` },
   ]
 
   return (
     <section className="page thesis-page thesis-shell">
       <aside className="page-card thesis-surface thesis-left-rail">
         <div className="thesis-rail-head">
-          <h1>My Thesis</h1>
+          <h1>Lab</h1>
         </div>
 
-        <nav className="thesis-rail-nav" aria-label="My Thesis Navigation">
+        <nav className="thesis-rail-nav" aria-label="Lab Navigation">
           {viewItems.map((item) => (
             <button
               key={item.id}
@@ -1499,11 +1554,11 @@ Regeln:
             <article className="page-card thesis-surface thesis-pro-hero">
               <div className="thesis-pro-hero-head">
                 <div>
-                  <p className="thesis-kicker">My Thesis Control Center</p>
+                  <p className="thesis-kicker">Lab Control Center</p>
                   <h3>Alles Wichtige auf einen Blick</h3>
                 </div>
                 <button className="ghost" type="button" onClick={() => setActiveView('workbench')}>
-                  Notizen öffnen
+                  Notehub öffnen
                 </button>
               </div>
 
@@ -1565,7 +1620,7 @@ Regeln:
 
                 <div className="thesis-pro-mix-card thesis-pro-search-card">
                   <h4>Schnellsuche</h4>
-                  <div className="thesis-pro-search-shell" role="search" aria-label="Schnellsuche in My Thesis">
+                  <div className="thesis-pro-search-shell" role="search" aria-label="Schnellsuche in Lab">
                     <div className="thesis-pro-search-grid-bg" />
                     <div className="thesis-pro-search-white" />
                     <div className="thesis-pro-search-border" />
@@ -1585,7 +1640,7 @@ Regeln:
                     </label>
                   </div>
                   {overviewSearchQuery.trim().length === 0 ? (
-                    <div className="thesis-pro-search-empty">Suche in Dokumenten, Aufgaben und Notizen.</div>
+                    <div className="thesis-pro-search-empty">Suche in Dokumenten, Aufgaben und Notehub.</div>
                   ) : overviewSearchResults.length === 0 ? (
                     <div className="thesis-pro-search-empty">Keine Treffer gefunden.</div>
                   ) : (
@@ -1598,7 +1653,7 @@ Regeln:
                           onClick={() => openOverviewSearchResult(result)}
                         >
                           <span className="thesis-pro-search-result-type">
-                            {result.type === 'document' ? 'Dokument' : result.type === 'task' ? 'Aufgabe' : 'Notiz'}
+                            {result.type === 'document' ? 'Dokument' : result.type === 'task' ? 'Aufgabe' : 'Notehub'}
                           </span>
                           <strong>{result.title}</strong>
                           <small>{result.meta}</small>
@@ -1616,12 +1671,12 @@ Regeln:
                 <h2>
                   <Sparkles size={16} /> Elea Quality Score
                 </h2>
-                <span>{qualityLocked ? 'Locked' : `${eleaScoreValue}/10`}</span>
+                <span>{qualityLocked ? 'Locked' : qualityScoreLabel}</span>
               </div>
               <div className="thesis-pro-score-main">
-                <div className="thesis-quality-value">{qualityLocked ? '--' : `${eleaScoreValue}/10`}</div>
+                <div className="thesis-quality-value">{qualityLocked ? '--' : qualityScoreLabel}</div>
                 <div className="score-bar thesis-quality-bar">
-                  <div className="score-fill" style={{ width: `${qualityLocked ? 0 : eleaScorePercent}%` }} />
+                  <div className="score-fill" style={{ width: `${qualityLocked ? 0 : qualityScoreBarWidth}%` }} />
                 </div>
                 <p className="thesis-quality-copy">
                   <strong>PhD-Level Quality Score:</strong> Lassen Sie Ihre Abschlussarbeit (Bachelor, Master, PhD) -
@@ -1635,6 +1690,10 @@ Regeln:
                 {qualityLocked ? (
                   <button className="primary" type="button" onClick={() => navigate('/payments')}>
                     Basic oder Pro freischalten
+                  </button>
+                ) : !hasQualityDocuments ? (
+                  <button className="ghost" type="button" onClick={() => setActiveView('documents')}>
+                    Dokument hochladen
                   </button>
                 ) : (
                   <button className="thesis-pro-cta" type="button" onClick={() => setActiveView('quality')}>
@@ -1650,7 +1709,7 @@ Regeln:
             <article className="page-card thesis-surface thesis-pro-alert-card">
               <div className="thesis-panel-head">
                 <h2>
-                  <Activity size={16} /> Thesis Alerts
+                  <Activity size={16} /> Alerts
                 </h2>
                 <span>Live</span>
               </div>
@@ -1734,7 +1793,7 @@ Regeln:
             <article className="page-card thesis-surface thesis-pro-notes-card">
               <div className="thesis-panel-head">
                 <h2>
-                  <NotepadText size={16} /> Notizen
+                  <NotepadText size={16} /> Notehub
                 </h2>
                 <button className="ghost" type="button" onClick={() => setActiveView('workbench')}>
                   Vollansicht
@@ -1742,7 +1801,7 @@ Regeln:
               </div>
               <div className="thesis-pro-stat-grid">
                 <div className="thesis-pro-stat-item">
-                  <span>Notizen gesamt</span>
+                  <span>Notehub gesamt</span>
                   <strong>{notesTotalCount}</strong>
                 </div>
                 <div className="thesis-pro-stat-item">
@@ -1755,7 +1814,7 @@ Regeln:
                 </div>
               </div>
               <div className="thesis-pro-card-note">
-                Notizen werden automatisch gespeichert und zwischen Geräten synchronisiert.
+                Notehub wird automatisch gespeichert und zwischen Geräten synchronisiert.
               </div>
             </article>
 
@@ -2133,17 +2192,17 @@ Regeln:
                 <h2>
                   <Sparkles size={16} /> Elea Quality Score
                 </h2>
-                <span>{qualityLocked ? 'Locked' : 'Basic/Pro aktiv'}</span>
+                <span>{qualityLocked ? 'Locked' : qualityReady ? 'Basic/Pro aktiv' : 'Dokument hochladen'}</span>
               </div>
               <div className="thesis-quality-main">
-                <div className="thesis-quality-value">{qualityLocked ? '--' : `${eleaScoreValue}/10`}</div>
+                <div className="thesis-quality-value">{qualityLocked ? '--' : qualityScoreLabel}</div>
                 <p className="thesis-quality-copy">
                   <strong>PhD-Level Quality Score:</strong> Lassen Sie Ihre Abschlussarbeit (Bachelor, Master, PhD) -
                   vollständig oder in Teilen - blitzschnell auf höchste wissenschaftliche Standards prüfen. Jeder
                   Bereich erhält Score (1-10), präzise Feedback und Optimierungstipps für Top-Noten.
                 </p>
                 <div className="score-bar thesis-quality-bar">
-                  <div className="score-fill" style={{ width: `${qualityLocked ? 0 : eleaScorePercent}%` }} />
+                  <div className="score-fill" style={{ width: `${qualityLocked ? 0 : qualityScoreBarWidth}%` }} />
                 </div>
               </div>
 
@@ -2196,10 +2255,10 @@ Regeln:
                       <div key={item.label} className="thesis-bar-row">
                         <div className="thesis-bar-head">
                           <span>{item.label}</span>
-                          <strong>{item.value.toFixed(1)}/10</strong>
+                          <strong>{item.value === null ? '--' : `${item.value.toFixed(1)}/10`}</strong>
                         </div>
                         <div className="thesis-bar-track">
-                          <span style={{ width: `${item.value * 10}%` }} />
+                          <span style={{ width: `${item.value === null ? 0 : item.value * 10}%` }} />
                         </div>
                       </div>
                     ))}
@@ -2527,6 +2586,14 @@ Regeln:
                                                 className={`ghost thesis-study-option ${cls}`}
                                                 disabled={!studyQuizStarted}
                                                 onClick={() => {
+                                                  if (studyQuizStarted) {
+                                                    const now = Date.now()
+                                                    const startedAt = studyQuizQuestionStartRef.current[idx] ?? now
+                                                    if (!studyQuizAnsweredRef.current[idx]) {
+                                                      recordQuizAnswerSpeed(Math.max(0, (now - startedAt) / 1000))
+                                                      studyQuizAnsweredRef.current[idx] = true
+                                                    }
+                                                  }
                                                   setStudyQuizAnswers((prev) => ({ ...prev, [idx]: oIdx }))
                                                 }}
                                               >
@@ -2617,11 +2684,11 @@ Regeln:
             <article className="page-card thesis-surface thesis-notes-panel">
               <div className="thesis-panel-head">
                 <h2>
-                  <NotepadText size={16} /> Notizen
+                  <NotepadText size={16} /> Notehub
                 </h2>
                 <span>Live Sync</span>
               </div>
-              <p className="thesis-subline">Hier kannst du Notizen erstellen, priorisieren und direkt mit Aufgaben oder Dokumenten verknüpfen.</p>
+              <p className="thesis-subline">Hier kannst du Notehub-Einträge erstellen, priorisieren und direkt mit Aufgaben oder Dokumenten verknüpfen.</p>
               <div className="thesis-actions-row">
                 <button className="ghost" type="button" onClick={startVoiceCapture} disabled={isTranscribing}>
                   <Mic size={12} /> {isRecording ? 'Aufnahme stoppen' : isTranscribing ? 'Transkribiere...' : 'Sprach-Input'}
@@ -2657,7 +2724,7 @@ Regeln:
                     id="note-content"
                     value={noteDraft.content}
                     onChange={(event) => setNoteDraft((prev) => ({ ...prev, content: event.target.value }))}
-                    placeholder="Notiz in Sekunden erfassen..."
+                    placeholder="Notehub in Sekunden erfassen..."
                   />
                 </label>
                 <div className="thesis-task-create-row">
@@ -2735,7 +2802,7 @@ Regeln:
               {noteError && <div className="todo-empty thesis-task-error">{noteError}</div>}
               <div className="thesis-actions-row">
                 <button className="primary" type="button" onClick={() => createNote('text')}>
-                  Notiz speichern
+                  Notehub speichern
                 </button>
                 <button className="ghost" type="button" onClick={resetNoteDraft}>
                   Zurücksetzen
@@ -2746,13 +2813,13 @@ Regeln:
             <article className="page-card thesis-surface thesis-reco-card">
               <div className="thesis-panel-head">
                 <h2>
-                  <CircleAlert size={14} /> Notizen-Feed
+                  <CircleAlert size={14} /> Notehub-Feed
                 </h2>
                 <span>{notes.length} Einträge</span>
               </div>
               {notes.length === 0 ? (
                 <div className="todo-empty thesis-task-empty">
-                  Noch keine Notizen vorhanden. Erstelle deine erste Notiz per Text oder Sprach-Input.
+                  Noch kein Notehub-Eintrag vorhanden. Erstelle deinen ersten Eintrag per Text oder Sprach-Input.
                 </div>
               ) : (
                 <div className="thesis-doc-list">

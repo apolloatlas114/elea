@@ -1,13 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { AuthUser } from '../lib/auth'
-import { getCurrentUser, signIn, signOut, signUp } from '../lib/auth'
+import { getCurrentUser, signIn, signInWithGoogle, signOut, signUp } from '../lib/auth'
 import { bootstrapAdminSessionEvent, trackActivityEvent } from '../lib/adminData'
+import { supabase, supabaseEnabled } from '../lib/supabaseClient'
 import { clearUserLocalState, STORAGE_KEYS } from '../lib/storage'
 
 type AuthState = {
   user: AuthUser | null
   loading: boolean
   login: (email: string, password: string) => Promise<AuthUser>
+  loginWithGoogle: () => Promise<void>
   register: (email: string, password: string) => Promise<{ needsEmailConfirmation: boolean; email: string; user: AuthUser | null }>
   logout: () => Promise<void>
 }
@@ -32,6 +34,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [])
 
+  useEffect(() => {
+    if (!supabaseEnabled || !supabase) return
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const next = session?.user
+      if (!next?.email) {
+        setUser(null)
+        return
+      }
+      setUser({ id: next.id, email: next.email })
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [])
+
   const login = useCallback(async (email: string, password: string) => {
     const next = await signIn(email, password)
     setUser(next)
@@ -43,6 +64,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     })
     void bootstrapAdminSessionEvent(next.id, next.email)
     return next
+  }, [])
+
+  const loginWithGoogle = useCallback(async () => {
+    await signInWithGoogle()
   }, [])
 
   const register = useCallback(async (email: string, password: string) => {
@@ -99,10 +124,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       user,
       loading,
       login,
+      loginWithGoogle,
       register,
       logout,
     }),
-    [user, loading, login, register, logout]
+    [user, loading, login, loginWithGoogle, register, logout]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

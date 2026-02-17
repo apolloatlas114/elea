@@ -5,6 +5,7 @@ import { useStress } from '../hooks/useStress'
 import { useAuth } from '../context/AuthContext'
 import { getMicrophoneErrorMessage, startMicrophoneCapture, type MicrophoneCaptureSession } from '../lib/audioCapture'
 import { groqChatJsonWithFallback } from '../lib/groq'
+import { computeProductivitySnapshot, loadProductivityMetrics } from '../lib/productivity'
 import type {
   AssessmentResult,
   BookingEntry,
@@ -237,7 +238,7 @@ const buildAssessmentResult = (answers: Record<string, string>): AssessmentResul
     score += option.support
   })
 
-  const recommendedPlan: Plan = score >= 8 ? 'pro' : score >= 4 ? 'basic' : 'free'
+  const recommendedPlan: Plan = score >= 8 ? 'pro' : score >= 4 ? 'basic' : 'study'
   const recommendationCopy: Record<Plan, string[]> = {
     free: ['Starker Start im Selbstlernmodus', 'Struktur durch Videos + Checklisten', 'Upgrade jederzeit möglich'],
     study: ['Mehr Tempo im Alltag', 'Unlimited Lern- und Notizmodus', 'Support innerhalb von 72h'],
@@ -908,6 +909,18 @@ const DashboardPage = () => {
   const deadlineCountdown = useCountdown(profile?.abgabedatum ?? todayIso())
   const coachingPlanEligible = plan === 'basic' || plan === 'pro'
   const hasCoachingAccess = coachingPlanEligible && coachingPaid
+  const [productivityTick, setProductivityTick] = useState(0)
+  const productivitySnapshot = useMemo(
+    () => computeProductivitySnapshot(loadProductivityMetrics()),
+    [productivityTick, stress.log.length, askEleaRecording, askEleaTranscribing]
+  )
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setProductivityTick((prev) => prev + 1)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const bookingAvailability = useMemo(() => {
     if (!bookingDate) {
@@ -1100,7 +1113,7 @@ const DashboardPage = () => {
   const showOnboarding = profile === null
   const showAssessment = profile !== null && assessment === null
   const showCommitment = profile !== null && !commitmentSeen && assessment !== null
-  const recommendedPlan = assessment?.recommendedPlan ?? 'basic'
+  const recommendedPlan = assessment?.recommendedPlan === 'free' ? 'study' : assessment?.recommendedPlan ?? 'basic'
   const recommendationReasons =
     assessment?.reasons ?? ['Bitte den Einstufungstest ausfüllen, damit wir deinen Plan empfehlen können.']
   const latestBooking = bookingLog[bookingLog.length - 1]
@@ -2410,8 +2423,8 @@ const DashboardPage = () => {
                     </strong>
                   </div>
                   <div className="metric floating">
-                    <span>Zielnote</span>
-                    <strong>{profile?.zielnote ?? '1,3'}</strong>
+                    <span>Produktivität</span>
+                    <strong>{productivitySnapshot.score}%</strong>
                   </div>
                 </div>
               </div>

@@ -6,7 +6,7 @@ import { captureReferralCodeFromSearch, claimPendingReferral, getPendingReferral
 import { STORAGE_KEYS } from '../lib/storage'
 
 const AuthPage = () => {
-  const { login, register } = useAuth()
+  const { user, loading: authLoading, login, loginWithGoogle, register } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [mode, setMode] = useState<'login' | 'register'>('login')
@@ -19,7 +19,14 @@ const AuthPage = () => {
   const [rememberUser, setRememberUser] = useState(false)
   const [referralNotice, setReferralNotice] = useState<string | null>(null)
   const [registrationPendingEmail, setRegistrationPendingEmail] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const isBusy = submitting || authLoading
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [authLoading, navigate, user])
 
   useEffect(() => {
     const captured = captureReferralCodeFromSearch(location.search)
@@ -55,7 +62,7 @@ const AuthPage = () => {
   }
 
   const handleLogin = async () => {
-    setLoading(true)
+    setSubmitting(true)
     setError(null)
     try {
       const currentUser = await login(email, password)
@@ -70,12 +77,12 @@ const AuthPage = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login fehlgeschlagen')
     } finally {
-      setLoading(false)
+      setSubmitting(false)
     }
   }
 
   const handleRegister = async () => {
-    setLoading(true)
+    setSubmitting(true)
     setError(null)
     try {
       const result = await register(email, password)
@@ -103,7 +110,24 @@ const AuthPage = () => {
       setRegistrationPendingEmail(null)
       setError(err instanceof Error ? err.message : 'Registrierung fehlgeschlagen')
     } finally {
-      setLoading(false)
+      setSubmitting(false)
+    }
+  }
+
+  const handleGoogleLogin = async () => {
+    setSubmitting(true)
+    setError(null)
+    try {
+      if (rememberUser && email.trim()) {
+        localStorage.setItem(STORAGE_KEYS.rememberedEmail, email.trim())
+      }
+      if (!rememberUser) {
+        localStorage.removeItem(STORAGE_KEYS.rememberedEmail)
+      }
+      await loginWithGoogle()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google-Login fehlgeschlagen')
+      setSubmitting(false)
     }
   }
 
@@ -142,7 +166,7 @@ const AuthPage = () => {
   return (
     <div className="auth-v0-page">
       <div className="auth-v0-wrap auth-v0-wrap-single">
-        <section className="auth-v0-card auth-v0-main" aria-busy={loading}>
+        <section className="auth-v0-card auth-v0-main" aria-busy={isBusy}>
           <header className="auth-v0-header">
             <img className="auth-v0-logo" src="/elealogoneu.png" alt="elea" />
             <h1>{mode === 'login' ? 'Willkommen zurück' : 'Konto erstellen'}</h1>
@@ -251,8 +275,34 @@ const AuthPage = () => {
 
               {error && <div className="auth-v0-error">{error}</div>}
 
-              <button className="auth-v0-primary" type="submit" disabled={loading}>
-                {loading ? <LoadingTicker variant="inline" prefix="Lade" words={['Login', 'Session', 'Profil', 'Sicherheit', 'Start']} /> : 'Login'}
+              <button className="auth-v0-primary" type="submit" disabled={isBusy}>
+                {submitting ? <LoadingTicker variant="inline" prefix="Lade" words={['Login', 'Session', 'Profil', 'Sicherheit', 'Start']} /> : 'Login'}
+              </button>
+
+              <div className="auth-v0-social-separator">
+                <span>oder mit</span>
+              </div>
+
+              <button className="auth-v0-google" type="button" onClick={() => void handleGoogleLogin()} disabled={isBusy}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M21.8 12.2c0-.8-.1-1.5-.2-2.2H12v4.2h5.5c-.2 1.3-1 2.5-2.1 3.3v2.7h3.4c2-1.8 3-4.5 3-8Z"
+                    fill="#4285F4"
+                  />
+                  <path
+                    d="M12 22c2.7 0 5-.9 6.7-2.4l-3.4-2.7c-.9.6-2.1 1-3.4 1-2.6 0-4.7-1.8-5.5-4.1H3v2.8C4.7 19.9 8.1 22 12 22Z"
+                    fill="#34A853"
+                  />
+                  <path
+                    d="M6.5 13.8c-.2-.6-.3-1.2-.3-1.8 0-.6.1-1.2.3-1.8V7.4H3A10.2 10.2 0 0 0 2 12c0 1.6.4 3.2 1 4.6l3.5-2.8Z"
+                    fill="#FBBC05"
+                  />
+                  <path
+                    d="M12 6.1c1.4 0 2.7.5 3.7 1.4L18.8 4C17 2.3 14.7 1.3 12 1.3c-3.9 0-7.3 2.1-9 5.4l3.5 2.8C7.3 7.9 9.4 6.1 12 6.1Z"
+                    fill="#EA4335"
+                  />
+                </svg>
+                <span>{submitting ? 'Google wird gestartet...' : 'Mit Google einloggen'}</span>
               </button>
             </form>
           ) : (
@@ -320,8 +370,8 @@ const AuthPage = () => {
 
               {error && <div className="auth-v0-error">{error}</div>}
 
-              <button className="auth-v0-primary" type="submit" disabled={loading}>
-                {loading ? <LoadingTicker variant="inline" prefix="Lade" words={['Konto', 'Daten', 'Profil', 'Zugang', 'Start']} /> : 'Create Account'}
+              <button className="auth-v0-primary" type="submit" disabled={isBusy}>
+                {submitting ? <LoadingTicker variant="inline" prefix="Lade" words={['Konto', 'Daten', 'Profil', 'Zugang', 'Start']} /> : 'Create Account'}
               </button>
             </form>
           )}
@@ -334,7 +384,7 @@ const AuthPage = () => {
             className="auth-v0-secondary"
             type="button"
             onClick={mode === 'login' ? switchToRegister : switchToLogin}
-            disabled={loading}
+            disabled={isBusy}
           >
             {mode === 'login' ? 'Noch kein Login? Jetzt registrieren' : 'Bereits registriert? Zum Login'}
           </button>

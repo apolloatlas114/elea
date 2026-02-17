@@ -5,6 +5,7 @@ import { EleaFeatureOrbit } from './components/EleaFeatureOrbit'
 import { PanicModal } from './components/PanicModal'
 import { useAuth } from './context/AuthContext'
 import { recordSecurityEvent, trackActivityEvent } from './lib/adminData'
+import { recordMentalCheckerOpen, recordMentalCheckerSave, recordMentalClickSpeed, recordMentalPattern } from './lib/productivity'
 import { buildReferralShareLink, captureReferralCodeFromSearch, claimPendingReferral, copyTextToClipboard, ensureOwnReferralCode } from './lib/referrals'
 import { useStress } from './hooks/useStress'
 import { isAdminEmail } from './lib/admin'
@@ -171,10 +172,11 @@ const AppLayout = () => {
   const [referralFeedback, setReferralFeedback] = useState<string | null>(null)
   const [referralCtaLabel, setReferralCtaLabel] = useState('Jetzt sparen')
   const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const mentalSessionRef = useRef<{ openedAt: number; lastActionAt: number; saved: boolean } | null>(null)
   const stress = useStress(user?.id)
   const navItems = [
     { to: '/dashboard', label: 'Dashboard', icon: 'home' },
-    { to: '/my-thesis', label: 'My Thesis', icon: 'messages' },
+    { to: '/my-thesis', label: 'Lab', icon: 'lab' },
     { to: '/school', label: 'School', icon: 'users' },
     { to: '/coaching', label: 'Coaching', icon: 'settings' },
     { to: '/community', label: 'Community', icon: 'community' },
@@ -307,6 +309,26 @@ const AppLayout = () => {
     return () => window.clearTimeout(timer)
   }, [mentalNotice])
 
+  const openMentalModal = () => {
+    const now = Date.now()
+    mentalSessionRef.current = { openedAt: now, lastActionAt: now, saved: false }
+    recordMentalCheckerOpen()
+    setMentalOpen(true)
+  }
+
+  const markMentalAction = () => {
+    const now = Date.now()
+    const session = mentalSessionRef.current
+    if (!session) return
+    const deltaMs = Math.max(0, now - session.lastActionAt)
+    recordMentalClickSpeed(deltaMs)
+    session.lastActionAt = now
+  }
+
+  const closeMentalModal = () => {
+    setMentalOpen(false)
+  }
+
   useEffect(() => {
     const captured = captureReferralCodeFromSearch(location.search)
     if (!captured) return
@@ -406,6 +428,7 @@ const AppLayout = () => {
   }, [location.pathname, user?.id])
 
   const handleMentalCheckInSave = () => {
+    markMentalAction()
     const entry = stress.saveCheckIn({
       mood: stress.mood,
       value: stress.value,
@@ -415,6 +438,12 @@ const AppLayout = () => {
       setMentalNotice(`Heute sind bereits ${stress.dailyLimit} Check-ins gespeichert.`)
       return
     }
+    const currentSession = mentalSessionRef.current
+    if (currentSession) {
+      currentSession.saved = true
+    }
+    recordMentalCheckerSave()
+    recordMentalPattern({ mood: entry.mood, value: entry.value, energy: entry.energy })
     setMentalNotice('Check-in gespeichert.')
 
     const recentBadDays = new Set(
@@ -512,6 +541,26 @@ const AppLayout = () => {
         </svg>
       )
     }
+    if (icon === 'lab') {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" height="26" width="26">
+          <path
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.6"
+            d="M9 3h6M10 3v4.2l-4.6 7.8A3.2 3.2 0 0 0 8.1 20h7.8a3.2 3.2 0 0 0 2.7-5l-4.6-7.8V3"
+          />
+          <path
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.6"
+            d="M8 14h8M7.2 16.8h9.6"
+          />
+        </svg>
+      )
+    }
     if (icon === 'users') {
       return (
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" height="26" width="26">
@@ -564,15 +613,21 @@ const AppLayout = () => {
   return (
     <div className={`app ${isThesisRoute ? 'app--thesis-fit' : ''}`}>
       <header className={`topbar ${menuOpen ? 'menu-open' : ''}`}>
-        <div className="brand">
+        <button
+          className="brand brand-button"
+          type="button"
+          onClick={() => navigate('/dashboard')}
+          aria-label="Zum Dashboard"
+          title="Zum Dashboard"
+        >
           <img className="brand-logo" src="/elealogoneu.png" alt="ELEA" />
-        </div>
+        </button>
 
         <div className="mobile-topbar-utils" aria-label="Mobile Schnellaktionen">
           <button
             className="mobile-mental-heart-button"
             type="button"
-            onClick={() => setMentalOpen(true)}
+            onClick={openMentalModal}
             aria-label="Mental Health Check öffnen"
             title="Mental Health Check öffnen"
           >
@@ -653,7 +708,7 @@ const AppLayout = () => {
           <button
             className="mental-heart-button"
             type="button"
-            onClick={() => setMentalOpen(true)}
+            onClick={openMentalModal}
             aria-label="Mental Health Check öffnen"
             title="Mental Health Check öffnen"
           >
@@ -706,14 +761,14 @@ const AppLayout = () => {
       <Outlet />
 
       {mentalOpen && (
-        <div className="modal-backdrop" onClick={() => setMentalOpen(false)}>
+        <div className="modal-backdrop" onClick={closeMentalModal}>
           <div className="modal mental-check-modal" onClick={(event) => event.stopPropagation()}>
             <div className="mental-check-head">
               <div>
                 <h2>Mental Health Check</h2>
                 <p>1 bis 3 Check-ins täglich. Kurz, klar, hilfreich.</p>
               </div>
-              <button className="ghost" type="button" onClick={() => setMentalOpen(false)}>
+              <button className="ghost" type="button" onClick={closeMentalModal}>
                 Schließen
               </button>
             </div>
@@ -726,7 +781,10 @@ const AppLayout = () => {
                   type="button"
                   role="radio"
                   aria-checked={stress.mood === option.id}
-                  onClick={() => stress.setMood(option.id)}
+                  onClick={() => {
+                    markMentalAction()
+                    stress.setMood(option.id)
+                  }}
                 >
                   <span className="mental-mood-icon">{renderMoodGlyph(option.id)}</span>
                   <span>{option.label}</span>

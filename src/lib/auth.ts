@@ -80,6 +80,27 @@ export const signIn = async (email: string, password: string): Promise<AuthUser>
   return user
 }
 
+export const signInWithGoogle = async (): Promise<void> => {
+  if (!supabaseEnabled || !supabase) {
+    throw new Error('Google-Login ist nur mit aktivem Supabase verfügbar.')
+  }
+
+  const redirectTo = `${window.location.origin}/auth`
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo,
+      queryParams: {
+        prompt: 'select_account',
+      },
+    },
+  })
+
+  if (error) {
+    throw new Error(error.message || 'Google-Login fehlgeschlagen')
+  }
+}
+
 export const signOut = async () => {
   if (supabaseEnabled && supabase) {
     await supabase.auth.signOut()
